@@ -7,12 +7,13 @@
 
 import ArgumentParser
 import Foundation
+import Forge
 
 struct ServiceListCommand: ParsableCommand {
     // MARK: - Property
     static let configuration = CommandConfiguration(
         commandName: "list",
-        abstract: "List registered service handlers."
+        abstract: "List registered services."
     )
     
     @OptionGroup var global: GlobalOptions
@@ -23,40 +24,28 @@ struct ServiceListCommand: ParsableCommand {
     // MARK: - Initializer
     // MARK: - Public
     func run() throws {
-        let socketPath = try resolveSocket(global)
-        let token = resolveToken(global.token)
+        let client = Client(global, context: "service list")
+        let result = client.call("service.list")
         
-        switch callRPC(
-            socketPath: socketPath,
-            method: "session.list",
-            params: [:],
-            token: token
-        ) {
-        case .err(let type, let message):
-            dieRPC("service list", type: type, message: message)
+        let services = result["services"]?.arrayValue ?? []
         
-        case .ok(let dict):
-            let services = (dict["services"] as? [[String: Any]]) ?? []
+        if json {
+            JSONValue.object(["services": .array(services)]).printJSON()
             
-            if json {
-                printJSON(["services": services])
-                
-                return
-            }
+            return
+        }
+        
+        if services.isEmpty {
+            print("(no services registered)")
             
-            if services.isEmpty {
-                print("(no services registered)")
-                
-                return
-            }
+            return
+        }
+        
+        for service in services {
+            let name = service["service"]?.stringValue ?? "?"
+            let description = service["schema"]?["description"]?.stringValue ?? ""
             
-            for service in services {
-                let name = service["service"] as? String ?? "?"
-                let schema = service["schema"] as? [String: Any]
-                let description = (schema?["description"] as? String) ?? ""
-                
-                print(description.isEmpty ? name : "\(name)\t\(description)")
-            }
+            print(description.isEmpty ? name : "\(name)\t\(description)")
         }
     }
     

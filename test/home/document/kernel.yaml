@@ -1,0 +1,85 @@
+procedures:
+  main:
+    description: Kernel language tour, every control-flow feature in one shallow pass.
+    access: public
+    parameters:
+      - who: { type: String, default: world, hint: whom the tour greets }
+      - mode: { type: String, default: a }
+      - items: { type: "Array<String>", default: [ one, two ] }
+    returns: "Dictionary<String, Any>"
+    failing: [aborted, concurrent_failed]
+    body:
+      - let: greet
+        value: { format: "hello, ${name}", with: { name: { ref: who } } }
+      - let: quoted
+        value: { dictionary: { ref: kept-as-data } }
+      - var: pick
+        type: String
+        value: ""
+      - value:
+          cases:
+            - when: { of: { ref: mode }, is: a }
+              then: [ { set: pick, value: took-a } ]
+            - else: [ { set: pick, value: took-b } ]
+      - var: rounds
+        type: Int
+        value: 0
+      - var: latest
+        type: Int
+        value: 0
+      - value:
+          loop:
+            while: { of: { ref: rounds }, is_not: 2 }
+            body:
+              - set: latest
+                value: { ref: rounds }
+              - set: rounds
+                value: { of: { ref: rounds }, plus: 1 }
+      - var: walked
+        type: "Array<String>"
+        value: []
+      - let: walk
+        value:
+          each:
+            of: { ref: items }
+            as: item
+            index: at
+            body:
+              - set: walked
+                value: { of: { ref: walked }, appending: { format: "${at}:${item}", with: { at: { ref: at }, item: { ref: item } } } }
+      - let: par
+        value:
+          call:
+            procedure: Standard.Concurrent.allKeyed
+            arguments:
+              - dictionary:
+                  left: { closure: { returns: Int, result: 1 } }
+                  right: { closure: { returns: Int, result: 2 } }
+      - var: recovered
+        type: String
+        value: ""
+      - let: caught
+        value:
+          try:
+            body:
+              - value: { abort: bail out }
+            catch:
+              - set: recovered
+                value: rescued
+      - let: called
+        value: { call: { procedure: tagged, arguments: { tag: from-use } } }
+    result:
+      dictionary:
+        greeting: { ref: greet }
+        quoted: { ref: quoted }
+        branch: { ref: pick }
+        loop: { ref: latest }
+        walk: { ref: walked }
+        parallel: { ref: par }
+        rescued: { ref: recovered }
+        used: { ref: 'called["tag_out"]' }
+
+  tagged:
+    parameters: [ tag: String ]
+    returns: "Dictionary<String, Any>"
+    result: { dictionary: { tag_out: { format: "helper:${tag}", with: { tag: { ref: tag } } } } }

@@ -16,19 +16,19 @@ struct PolicyCheckCommand: ParsableCommand {
         discussion: """
             forge policy check <principal> <workflow>
 
-            Example values are placeholders — substitute your own principal
-            (from `forge policy list`) and workflow name.
+            Example values are placeholders; substitute your own principal
+            (from `forge policy list`) and workflow path.
 
-            Example: forge policy check <principal> <wf>
+            Example: forge policy check <principal> <path>
             """
     )
     
     @OptionGroup var global: GlobalOptions
     
-    @Argument(help: "Caller principal (e.g. `cli:response`).")
+    @Argument(help: "Caller principal (e.g. `cli:bot/response.yaml`).")
     var principal: String
     
-    @Argument(help: "Target workflow name.")
+    @Argument(help: "Target workflow, by its path as dispatched.")
     var workflow: String
     
     @Flag(help: "Emit JSON instead of plain text.")
@@ -37,34 +37,22 @@ struct PolicyCheckCommand: ParsableCommand {
     // MARK: - Initializer
     // MARK: - Public
     func run() throws {
-        let socketPath = try resolveSocket(global)
-        let token = resolveToken(global.token)
-        let params: [String: Any] = ["principal": principal, "workflow": workflow]
+        let client = Client(global, context: "policy check")
+        let result = client.call("policy.check", ["principal": .string(principal), "workflow": .string(workflow)])
         
-        switch callRPC(
-            socketPath: socketPath,
-            method: "policy.check",
-            params: params,
-            token: token
-        ) {
-        case .ok(let dictionary):
-            if json {
-                printJSON(dictionary)
-                
-                return
-            }
+        if json {
+            result.printJSON()
             
-            let allowed = (dictionary["allowed"] as? Bool) ?? false
-            let principal = (dictionary["principal"] as? String) ?? principal
-            let workflow = (dictionary["workflow"] as? String) ?? workflow
-            
-            print("\(principal) → \(workflow): \(allowed ? "allowed" : "denied")")
-            
-            if !allowed { ForgeCommand.exit(withError: ExitCode(1)) }
-        
-        case .err(let type, let message):
-            dieRPC("policy check", type: type, message: message)
+            return
         }
+        
+        let allowed = result["allowed"]?.boolValue ?? false
+        let principal = result["principal"]?.stringValue ?? principal
+        let workflow = result["workflow"]?.stringValue ?? workflow
+        
+        print("\(principal) → \(workflow): \(allowed ? "allowed" : "denied")")
+        
+        if !allowed { Self.exit(withError: ExitCode(1)) }
     }
     
     // MARK: - Private

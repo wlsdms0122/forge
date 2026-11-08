@@ -7,12 +7,13 @@
 
 import ArgumentParser
 import Foundation
+import Forge
 
 struct WorkflowActiveCommand: ParsableCommand {
     // MARK: - Property
     static let configuration = CommandConfiguration(
         commandName: "active",
-        abstract: "Show workflows the pool is currently tracking."
+        abstract: "Show runs the pool is currently tracking."
     )
     
     @OptionGroup var global: GlobalOptions
@@ -23,46 +24,35 @@ struct WorkflowActiveCommand: ParsableCommand {
     // MARK: - Initializer
     // MARK: - Public
     func run() throws {
-        let socketPath = try resolveSocket(global)
-        let token = resolveToken(global.token)
+        let client = Client(global, context: "workflow active")
+        let result = client.call("workflow.list_active")
         
-        switch callRPC(
-            socketPath: socketPath,
-            method: "workflow.list_active",
-            params: [:],
-            token: token
-        ) {
-        case .err(let type, let message):
-            dieRPC("workflow active", type: type, message: message)
-        
-        case .ok(let dict):
-            if json {
-                printJSON(dict)
-                
-                return
-            }
+        if json {
+            result.printJSON()
             
-            let rows = (dict["workflows"] as? [[String: Any]]) ?? []
-            
-            if rows.isEmpty {
-                print("(no active workflows)")
-            } else {
-                for row in rows {
-                    let id = row["workflow_id"] as? String ?? "?"
-                    let name = row["workflow_name"] as? String ?? "?"
-                    let state = row["state"] as? String ?? "?"
-                    let principal = row["principal"] as? String ?? "?"
-                    
-                    print("\(id)\t\(name)\t\(state)\t\(principal)")
-                }
-            }
-            
-            let slots = dict["maximum_concurrent_steps"] as? Int ?? 0
-            let free = dict["free_slots"] as? Int ?? 0
-            let queued = dict["queued_waiters"] as? Int ?? 0
-            
-            print("slots: \(free) free / \(slots) total, \(queued) queued")
+            return
         }
+        
+        let rows = result["runs"]?.arrayValue ?? []
+        
+        if rows.isEmpty {
+            print("(no active runs)")
+        } else {
+            for row in rows {
+                let id = row["run_id"]?.stringValue ?? "?"
+                let name = row["workflow_name"]?.stringValue ?? "?"
+                let state = row["state"]?.stringValue ?? "?"
+                let principal = row["principal"]?.stringValue ?? "?"
+                
+                print("\(id)\t\(name)\t\(state)\t\(principal)")
+            }
+        }
+        
+        let slots = result["maximum_concurrent_steps"]?.intValue ?? 0
+        let free = result["free_slots"]?.intValue ?? 0
+        let queued = result["queued_waiters"]?.intValue ?? 0
+        
+        print("slots: \(free) free / \(slots) total, \(queued) queued")
     }
     
     // MARK: - Private

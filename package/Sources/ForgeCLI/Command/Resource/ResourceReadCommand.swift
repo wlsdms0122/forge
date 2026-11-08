@@ -7,6 +7,7 @@
 
 import ArgumentParser
 import Foundation
+import Forge
 
 struct ResourceReadCommand: ParsableCommand {
     // MARK: - Property
@@ -17,10 +18,10 @@ struct ResourceReadCommand: ParsableCommand {
     
     @OptionGroup var global: GlobalOptions
     
-    @Argument(help: "Path relative to resource_directory.")
+    @Argument(help: "Path relative to the working directory.")
     var path: String
     
-    @Option(help: "Truncation cap in bytes — bytes beyond are dropped and truncated=true.")
+    @Option(help: "Truncation cap in bytes; bytes beyond it are dropped and the result has truncated=true.")
     var maxBytes: Int?
     
     @Flag(help: "Emit JSON (path/body/size/truncated). Default prints body only.")
@@ -29,31 +30,21 @@ struct ResourceReadCommand: ParsableCommand {
     // MARK: - Initializer
     // MARK: - Public
     func run() throws {
-        let socketPath = try resolveSocket(global)
-        let token = resolveToken(global.token)
+        let client = Client(global, context: "resource read")
         
-        var params: [String: Any] = ["path": path]
+        var params: [String: JSONValue] = ["path": .string(path)]
         
-        if let maxBytes { params["maximum_bytes"] = maxBytes }
+        if let maxBytes { params["maximum_bytes"] = .int(maxBytes) }
         
-        switch callRPC(
-            socketPath: socketPath,
-            method: "resource.read",
-            params: params,
-            token: token
-        ) {
-        case .err(let type, let message):
-            dieRPC("resource read", type: type, message: message)
+        let result = client.call("resource.read", params)
         
-        case .ok(let dictionary):
-            if json {
-                printJSON(dictionary)
-                
-                return
-            }
+        if json {
+            result.printJSON()
             
-            print((dictionary["body"] as? String) ?? "")
+            return
         }
+        
+        print(result["body"]?.stringValue ?? "")
     }
     
     // MARK: - Private

@@ -7,6 +7,7 @@
 
 import ArgumentParser
 import Foundation
+import Forge
 
 struct JobDeleteCommand: ParsableCommand {
     // MARK: - Property
@@ -14,8 +15,8 @@ struct JobDeleteCommand: ParsableCommand {
         commandName: "delete",
         abstract: "Delete a job ticket after its result has been reviewed.",
         discussion: """
-            A ticket persists for review even after the work is finished — it never
-            auto-expires. Once its result has been checked, `delete` removes the
+            A ticket persists for review after the work is finished; it does not
+            expire. Once its result has been checked, `delete` removes the
             ticket (and unlinks it from its parent's children).
             """
     )
@@ -31,21 +32,9 @@ struct JobDeleteCommand: ParsableCommand {
     // MARK: - Initializer
     // MARK: - Public
     func run() throws {
-        let socketPath = try resolveSocket(global)
-        let token = resolveToken(global.token)
+        let client = Client(global, context: "job delete")
         
-        switch callRPC(
-            socketPath: socketPath,
-            method: "job.delete",
-            params: ["id": id],
-            token: token
-        ) {
-        case .ok(let dict):
-            if json { printJSON(dict) } else { print(renderResultPlain(dict)) }
-        
-        case .err(let type, let message):
-            dieRPC("job delete", type: type, message: message)
-        }
+        client.call("job.delete", ["id": .string(id)]).printResult(json: json)
     }
     
     // MARK: - Private

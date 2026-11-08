@@ -7,6 +7,7 @@
 
 import ArgumentParser
 import Foundation
+import Forge
 
 struct ScheduleDeleteCommand: ParsableCommand {
     // MARK: - Property
@@ -14,9 +15,7 @@ struct ScheduleDeleteCommand: ParsableCommand {
         commandName: "delete",
         abstract: "Delete a schedule.",
         discussion: """
-            Deletes a schedule by id — regardless of origin (config or runtime).
-            Deleting a hand-authored config file removes it from the working
-            tree; restore it from the repo if needed.
+            Deletes a schedule by id.
             """
     )
     
@@ -31,21 +30,9 @@ struct ScheduleDeleteCommand: ParsableCommand {
     // MARK: - Initializer
     // MARK: - Public
     func run() throws {
-        let socketPath = try resolveSocket(global)
-        let token = resolveToken(global.token)
+        let client = Client(global, context: "schedule delete")
         
-        switch callRPC(
-            socketPath: socketPath,
-            method: "schedule.delete",
-            params: ["id": id],
-            token: token
-        ) {
-        case .ok(let dict):
-            if json { printJSON(dict) } else { print(renderResultPlain(dict)) }
-        
-        case .err(let type, let message):
-            dieRPC("schedule delete", type: type, message: message)
-        }
+        client.call("schedule.delete", ["id": .string(id)]).printResult(json: json)
     }
     
     // MARK: - Private

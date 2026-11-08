@@ -7,6 +7,7 @@
 
 import ArgumentParser
 import Foundation
+import Forge
 
 struct ScheduleEnableCommand: ParsableCommand {
     // MARK: - Property
@@ -26,14 +27,10 @@ struct ScheduleEnableCommand: ParsableCommand {
     // MARK: - Initializer
     // MARK: - Public
     func run() throws {
-        let socketPath = try resolveSocket(global)
-        setScheduleEnabled(
-            socketPath,
-            id: id,
-            enabled: true,
-            token: resolveToken(global.token),
-            json: json
-        )
+        let client = Client(global, context: "schedule enable")
+        
+        client.call("schedule.set_enabled", ["id": .string(id), "enabled": true])
+            .printResult(json: json)
     }
     
     // MARK: - Private

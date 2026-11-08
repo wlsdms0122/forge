@@ -7,6 +7,7 @@
 
 import ArgumentParser
 import Foundation
+import Forge
 
 struct JobUpdateCommand: ParsableCommand {
     // MARK: - Property
@@ -15,7 +16,7 @@ struct JobUpdateCommand: ParsableCommand {
         abstract: "Edit a job ticket (comment / brief / ref / plan item / status).",
         discussion: """
             All fields optional; pass any mix. Comments are the handover the next
-            session (or the synthesizer reading sibling tickets) starts from — write
+            session (or the synthesizer reading sibling tickets) starts from: write
             what was done, why, and where things stand. Every edit is stamped with
             the caller token's id.
 
@@ -48,10 +49,10 @@ struct JobUpdateCommand: ParsableCommand {
     @Option(name: .customLong("item-desc"), help: "Plan item description (set when creating).")
     var itemDesc: String?
     
-    @Option(name: .customLong("item-status"), help: "Plan item status (free string — vocabulary is the client's convention).")
+    @Option(name: .customLong("item-status"), help: "Plan item status (a free string; its vocabulary is the client's convention).")
     var itemStatus: String?
     
-    @Option(help: "Overall job status (free string — vocabulary is the client's convention).")
+    @Option(help: "Overall job status (a free string; its vocabulary is the client's convention).")
     var status: String?
     
     @Flag(help: "Emit JSON.")
@@ -60,32 +61,20 @@ struct JobUpdateCommand: ParsableCommand {
     // MARK: - Initializer
     // MARK: - Public
     func run() throws {
-        let socketPath = try resolveSocket(global)
-        let token = resolveToken(global.token)
+        let client = Client(global, context: "job update")
         
-        var params: [String: Any] = ["id": id]
+        var params: [String: JSONValue] = ["id": .string(id)]
         
-        if let note { params["note"] = note }
-        if let brief { params["brief"] = brief }
-        if let ref { params["ref"] = ref }
-        if let refNote { params["ref_note"] = refNote }
-        if let item { params["item"] = item }
-        if let itemDesc { params["item_desc"] = itemDesc }
-        if let itemStatus { params["item_status"] = itemStatus }
-        if let status { params["status"] = status }
+        if let note { params["note"] = .string(note) }
+        if let brief { params["brief"] = .string(brief) }
+        if let ref { params["ref"] = .string(ref) }
+        if let refNote { params["ref_note"] = .string(refNote) }
+        if let item { params["item"] = .int(item) }
+        if let itemDesc { params["item_desc"] = .string(itemDesc) }
+        if let itemStatus { params["item_status"] = .string(itemStatus) }
+        if let status { params["status"] = .string(status) }
         
-        switch callRPC(
-            socketPath: socketPath,
-            method: "job.update",
-            params: params,
-            token: token
-        ) {
-        case .ok(let dict):
-            if json { printJSON(dict) } else { print(renderResultPlain(dict)) }
-        
-        case .err(let type, let message):
-            dieRPC("job update", type: type, message: message)
-        }
+        client.call("job.update", params).printResult(json: json)
     }
     
     // MARK: - Private

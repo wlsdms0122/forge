@@ -7,29 +7,27 @@
 
 import ArgumentParser
 import Foundation
+import Forge
 
 struct ScheduleCreateCommand: ParsableCommand {
     // MARK: - Property
     static let configuration = CommandConfiguration(
         commandName: "create",
-        abstract: "Create a schedule (runtime dir).",
+        abstract: "Create a schedule.",
         discussion: """
-            Registers a schedule in the runtime dir (runtime_directory/schedule).
-            Fires either a registered workflow (`--workflow <name>`) or an
-            anonymous inline workflow (`--spec <json>`) on a trigger —
-            exactly one of:
+            Registers a schedule in state_directory/schedule.
+            Fires either a workflow at a path (`--workflow <path>`) or an
+            inline workflow (`--spec <json>`) on a trigger, exactly one of:
 
                 --every <dur>            repeat forever, every interval
                 --at <HH:mm> --timezone  repeat on a wall-clock (combine --days)
                 --once <ts> --timezone   fire once at 'yyyy-MM-dd HH:mm:ss'
                 --after <dur>            fire once, this much from now
 
-            `--once`/`--after` are one-shot fires.
-            A one-shot stays on disk after firing — runtime-created ones are
-            auto-GC'd by the daemon; hand-authored config ones show `spent` in
-            `list` for you to remove. The target flags are mutually exclusive;
-            inline `spec` rejects a `name` key and runs gated by the `<inline>`
-            sigil — identical shape to `workflow dispatch --spec`.
+            `--once`/`--after` are one-shot fires, removed by the daemon once
+            fired. The target flags are mutually exclusive;
+            inline `spec` runs gated by the `<inline>` sigil, the same shape
+            as `workflow dispatch --spec`.
 
             Creation is policy-gated: your principal must be allowed to
             dispatch the target workflow directly (policy/*.yaml), or the
@@ -37,27 +35,30 @@ struct ScheduleCreateCommand: ParsableCommand {
 
             Remove with `forge schedule delete <id>`.
 
-            Example values (`<wf>`, channel IDs, JSON contents) are
-            placeholders — substitute your own.
+            Example values (`<path>`, channel IDs, JSON contents) are
+            placeholders; substitute your own.
 
-            EXAMPLE — registered workflow, repeating:
-                forge schedule create --workflow <wf> \\
+            EXAMPLE: a workflow at a path, repeating:
+                forge schedule create --workflow <path> \\
                     --every 1h --inputs '{"channel":"<channel-id>"}'
 
-            EXAMPLE — inline spec, one-shot in 30 minutes:
+            EXAMPLE: inline spec, one-shot in 30 minutes:
                 forge schedule create --after 30m --spec '{
-                  "steps": [{"id":"send","shell":{"command":["forge","service","send","slack",
-                    "--payload","{\\"kind\\":\\"slack.thread\\",\\"target\\":\\"<permalink>\\",\\"text\\":\\"<message>\\"}"]}}]
+                  "failing": ["nonzero_exit", "timeout"],
+                  "body": [{"value": {"call": {"procedure": "shell", "arguments": {"command": [
+                    "forge", "service", "send", "slack", "--payload",
+                    "{\\"kind\\":\\"slack.thread\\",\\"target\\":\\"<permalink>\\",\\"text\\":\\"<message>\\"}"
+                  ]}}}}]
                 }'
             """
     )
     
     @OptionGroup var global: GlobalOptions
     
-    @Option(help: "Registered workflow name. Omit when using --spec.")
+    @Option(help: "The workflow's path, absolute or under the working directory. Omit when using --spec.")
     var workflow: String?
     
-    @Option(help: "Inline anonymous workflow JSON — use instead of --workflow.")
+    @Option(help: "Inline workflow JSON, one procedure; use instead of --workflow.")
     var spec: String?
     
     @Option(help: "Repeat every interval (30s 5m 1h 2d).")
@@ -93,42 +94,33 @@ struct ScheduleCreateCommand: ParsableCommand {
     // MARK: - Initializer
     // MARK: - Public
     func run() throws {
-        let socketPath = try resolveSocket(global)
-        let token = resolveToken(global.token)
+        let client = Client(global, context: "schedule create")
         
-        var params: [String: Any] = [:]
+        var params: [String: JSONValue] = [:]
         
-        if let every { params["every"] = every }
-        if let at { params["at"] = at }
-        if let once { params["once"] = once }
-        if let after { params["after"] = after }
-        if let timezone { params["timezone"] = timezone }
+        if let every { params["every"] = .string(every) }
+        if let at { params["at"] = .string(at) }
+        if let once { params["once"] = .string(once) }
+        if let after { params["after"] = .string(after) }
+        if let timezone { params["timezone"] = .string(timezone) }
         
         if let days {
-            params["days"] = days
-                .split(separator: ",")
-                .map { day in day.trimmingCharacters(in: .whitespaces) }
-                .filter { day in !day.isEmpty }
+            params["days"] = .array(
+                days
+                    .split(separator: ",")
+                    .map { day in day.trimmingCharacters(in: .whitespaces) }
+                    .filter { day in !day.isEmpty }
+                    .map(JSONValue.string)
+            )
         }
         
-        if let workflow { params["workflow"] = workflow }
-        if let spec { params["spec"] = parseJSONObjectArg(spec, flag: "--spec") }
-        if let id { params["id"] = id }
-        if let inputs { params["inputs"] = parseJSONObjectArg(inputs, flag: "--inputs") }
-        if let concurrency { params["concurrency"] = concurrency }
+        if let workflow { params["workflow"] = .string(workflow) }
+        if let spec { params["spec"] = JSONValue(objectArgument: spec, flag: "--spec") }
+        if let id { params["id"] = .string(id) }
+        if let inputs { params["inputs"] = JSONValue(objectArgument: inputs, flag: "--inputs") }
+        if let concurrency { params["concurrency"] = .string(concurrency) }
         
-        switch callRPC(
-            socketPath: socketPath,
-            method: "schedule.create",
-            params: params,
-            token: token
-        ) {
-        case .ok(let dict):
-            if json { printJSON(dict) } else { print(renderResultPlain(dict)) }
-        
-        case .err(let type, let message):
-            dieRPC("schedule create", type: type, message: message)
-        }
+        client.call("schedule.create", params).printResult(json: json)
     }
     
     // MARK: - Private

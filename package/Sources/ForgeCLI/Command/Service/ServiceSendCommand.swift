@@ -7,29 +7,28 @@
 
 import ArgumentParser
 import Foundation
+import Forge
 
 struct ServiceSendCommand: ParsableCommand {
     // MARK: - Property
     static let configuration = CommandConfiguration(
         commandName: "send",
-        abstract: "Send a JSON payload to a service handler.",
+        abstract: "Send a JSON payload to a registered service.",
         discussion: """
-            Hands a payload to a registered external service handler
-            (e.g. `slack`). The payload schema is service-specific — see
+            Hands a payload to a registered service
+            (e.g. `slack`). The payload schema is service-specific; see
             `forge service describe <name>`.
 
             IDENTITY
                 The bearer token (FORGE_ACCESS_TOKEN or --token) carries the
-                caller's identity. principal / workflow_id / origin /
-                correlator are derived server-side from the token — not
-                spoofable.
+                caller's identity. principal / run_id / origin /
+                correlator are derived server-side from the token, so a
+                caller cannot set them.
 
             BLOCKING vs --async
-                `send` blocks until the handler acks and returns its result.
+                `send` blocks until the service acks and returns its result.
                 Pass --async to return as soon as the work is dispatched
                 ({ message_id, status: "dispatched" }) without waiting.
-                Whether to wait is the caller's business — a `wait` key in
-                the payload is rejected; use --async.
 
             EXAMPLE
                 forge service send slack \\
@@ -39,13 +38,13 @@ struct ServiceSendCommand: ParsableCommand {
     
     @OptionGroup var global: GlobalOptions
     
-    @Argument(help: "Service handler name (e.g. `slack`).")
+    @Argument(help: "Service name (e.g. `slack`).")
     var name: String
     
     @Option(help: "JSON object payload. Service-specific schema.")
     var payload: String
     
-    @Flag(help: "Emit the full RPC response as JSON (default: readable result).")
+    @Flag(help: "Emit the result as JSON (default: readable result).")
     var json: Bool = false
     
     @Flag(
@@ -57,40 +56,17 @@ struct ServiceSendCommand: ParsableCommand {
     // MARK: - Initializer
     // MARK: - Public
     func run() throws {
-        let socketPath = try resolveSocket(global)
+        let client = Client(global, context: "service send")
         
-        guard let payloadData = payload.data(using: .utf8),
-            let payloadAny = try? JSONSerialization.jsonObject(with: payloadData),
-            let payloadObject = payloadAny as? [String: Any]
-        else {
-            die("service send: --payload must be a JSON object", code: 4)
-        }
-        
-        if payloadObject["wait"] != nil {
-            die("service send: control whether to wait with the --async flag, not a payload field (omit --async to block until completion)", code: 4)
-        }
-        
-        let params: [String: Any] = [
-            "service": name,
-            "payload": payloadObject,
-            "async": isAsync,
+        let params: [String: JSONValue] = [
+            "service": .string(name),
+            "payload": JSONValue(objectArgument: payload, flag: "--payload"),
+            "async": .bool(isAsync)
         ]
-        let token = resolveToken(global.token)
         
-        switch callRPC(
-            socketPath: socketPath,
-            method: "session.send",
-            params: params,
-            token: token
-        ) {
-        case .ok(let dict):
-            if json { printJSON(dict) } else { print(renderResultPlain(dict)) }
-            
-            ForgeCommand.exit()
+        client.call("service.send", params).printResult(json: json)
         
-        case .err(let type, let message):
-            dieRPC("service send", type: type, message: message)
-        }
+        Self.exit()
     }
     
     // MARK: - Private

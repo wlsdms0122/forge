@@ -7,6 +7,7 @@
 
 import ArgumentParser
 import Foundation
+import Forge
 
 struct JobCreateCommand: ParsableCommand {
     // MARK: - Property
@@ -18,7 +19,7 @@ struct JobCreateCommand: ParsableCommand {
             the task without re-reading the source thread, and --refs with
             knowledge pointers already consulted. Pass --origin to bind the ticket
             to its source context (e.g. a slack thread). A ticket can be created
-            now and picked up later — creation and dispatch are separate acts.
+            now and picked up later by a separate dispatch.
 
             EXAMPLE:
                 forge job create --title "refactor X" \\
@@ -40,16 +41,16 @@ struct JobCreateCommand: ParsableCommand {
     @Option(help: "Reference pointers JSON: [{\"ref\":\"brain-id|path|url\",\"note\":\"why\"}] or [\"ref\", ...]. Knowledge already consulted / worth consulting.")
     var refs: String?
     
-    @Option(help: "Origin as an opaque JSON map (forge-agnostic; e.g. slack: {channel, thread_ts}).")
+    @Option(help: "Origin as an opaque JSON object (forge-agnostic; e.g. slack: {channel, thread_ts}).")
     var origin: String?
     
-    @Option(help: "Plan JSON array: [{\"id\"?:int,\"desc\":\"...\",\"status\"?:\"...\"}] or [\"desc\", ...]. id is an integer — omit to auto-number from 1.")
+    @Option(help: "Plan JSON array: [{\"id\"?:int,\"desc\":\"...\",\"status\"?:\"...\"}] or [\"desc\", ...]. id is an integer; omit it to auto-number from 1.")
     var plan: String?
     
     @Option(name: .customLong("parent-job"), help: "Parent job id (epic/sub-ticket hierarchy).")
     var parentJob: String?
     
-    @Option(help: "Initial status (free string, default \"open\"; vocabulary is the client's convention).")
+    @Option(help: "Initial status (free string; vocabulary is the client's convention).")
     var status: String?
     
     @Option(help: "Job id (default: auto-generated).")
@@ -61,53 +62,23 @@ struct JobCreateCommand: ParsableCommand {
     // MARK: - Initializer
     // MARK: - Public
     func run() throws {
-        let socketPath = try resolveSocket(global)
-        let token = resolveToken(global.token)
+        let client = Client(global, context: "job create")
         
-        var params: [String: Any] = ["title": title]
+        var params: [String: JSONValue] = ["title": .string(title)]
         
-        if let brief { params["brief"] = brief }
+        if let brief { params["brief"] = .string(brief) }
         
-        if let refs {
-            guard let data = refs.data(using: .utf8),
-                let array = try? JSONSerialization.jsonObject(with: data),
-                array is [Any]
-            else {
-                die("job create: --refs must be a valid JSON array", code: 4)
-            }
-            
-            params["refs"] = array
-        }
+        if let refs { params["refs"] = JSONValue(arrayArgument: refs, flag: "--refs") }
         
-        if let origin { params["origin"] = parseJSONObjectArg(origin, flag: "--origin") }
+        if let origin { params["origin"] = JSONValue(objectArgument: origin, flag: "--origin") }
         
-        if let plan {
-            guard let data = plan.data(using: .utf8),
-                let array = try? JSONSerialization.jsonObject(with: data),
-                array is [Any]
-            else {
-                die("job create: --plan must be a valid JSON array", code: 4)
-            }
-            
-            params["plan"] = array
-        }
+        if let plan { params["plan"] = JSONValue(arrayArgument: plan, flag: "--plan") }
         
-        if let parentJob { params["parent_job"] = parentJob }
-        if let status { params["status"] = status }
-        if let id { params["id"] = id }
+        if let parentJob { params["parent_job"] = .string(parentJob) }
+        if let status { params["status"] = .string(status) }
+        if let id { params["id"] = .string(id) }
         
-        switch callRPC(
-            socketPath: socketPath,
-            method: "job.create",
-            params: params,
-            token: token
-        ) {
-        case .ok(let dict):
-            if json { printJSON(dict) } else { print(renderResultPlain(dict)) }
-        
-        case .err(let type, let message):
-            dieRPC("job create", type: type, message: message)
-        }
+        client.call("job.create", params).printResult(json: json)
     }
     
     // MARK: - Private

@@ -7,25 +7,26 @@
 
 import ArgumentParser
 import Foundation
+import Forge
 
 struct WorkflowDescribeCommand: ParsableCommand {
     // MARK: - Property
     static let configuration = CommandConfiguration(
         commandName: "describe",
-        abstract: "Show a single workflow's calling contract — description, inputs, outputs.",
+        abstract: "Show a single workflow's calling contract: description, inputs, return type.",
         discussion: """
-            Returns the full schema needed to dispatch a workflow without grep'ing
-            the YAML file: inputs (type/default/hint — a declared default, even
-            `null`, marks the input optional) and outputs mapping.
-            Counterpart to `service describe`. Plain output is human-readable;
-            pass --json to parse.
+            Returns what dispatching a workflow needs without grep'ing the YAML
+            file: its inputs, each with the type (Optional where a caller may
+            leave it out) and the hint, and its return type. Counterpart to
+            `service describe`. Plain output is human-readable; pass --json to
+            parse.
             """
     )
     
     @OptionGroup var global: GlobalOptions
     
-    @Argument(help: "Registered workflow name.")
-    var name: String
+    @Argument(help: "The workflow's path, absolute or under the working directory.")
+    var path: String
     
     @Flag(help: "Emit JSON.")
     var json: Bool = false
@@ -33,116 +34,45 @@ struct WorkflowDescribeCommand: ParsableCommand {
     // MARK: - Initializer
     // MARK: - Public
     func run() throws {
-        let socketPath = try resolveSocket(global)
-        let token = resolveToken(global.token)
+        let client = Client(global, context: "workflow describe")
+        let result = client.call("workflow.describe", ["path": .string(path)])
         
-        switch callRPC(
-            socketPath: socketPath,
-            method: "workflow.describe",
-            params: ["name": name],
-            token: token
-        ) {
-        case .err(let type, let message):
-            dieRPC("workflow describe", type: type, message: message)
+        if json {
+            result.printJSON()
+            
+            return
+        }
         
-        case .ok(let dict):
-            if json {
-                printJSON(dict)
+        let description = result["description"]?.stringValue ?? ""
+        
+        print(result["path"]?.stringValue ?? path)
+        
+        if !description.isEmpty { print("  \(description)") }
+        
+        let inputs = result["inputs"]?.objectValue ?? [:]
+        
+        if inputs.isEmpty {
+            print("  inputs: (none)")
+        } else {
+            print("  inputs:")
+            
+            for key in inputs.keys.sorted() {
+                let spec = inputs[key]
+                let type = spec?["type"]?.stringValue ?? ""
+                let header = "\(key) (\(type))"
                 
-                return
-            }
-            
-            let resolvedName = dict["name"] as? String ?? name
-            let description = dict["description"] as? String ?? ""
-            let source = dict["source"] as? String ?? ""
-            
-            print(resolvedName)
-            
-            if !description.isEmpty { print("  \(description)") }
-            if !source.isEmpty { print("  source: \(source)") }
-            
-            let inputs = (dict["inputs"] as? [String: Any]) ?? [:]
-            
-            if inputs.isEmpty {
-                print("  inputs: (none)")
-            } else {
-                print("  inputs:")
-                
-                for key in inputs.keys.sorted() {
-                    let spec = inputs[key] as? [String: Any] ?? [:]
-                    var bits: [String] = []
-                    
-                    if let type = spec["type"] as? String { bits.append(type) }
-                    
-                    if spec.keys.contains("default") {
-                        bits.append("optional")
-                        
-                        if let value = spec["default"], !(value is NSNull) {
-                            bits.append("default=\(renderPlainValue(value))")
-                        }
-                    }
-                    
-                    if let one = spec["oneOf"] as? [Any] {
-                        bits.append("one_of=\(renderPlainValue(one))")
-                    }
-                    
-                    let header = bits.isEmpty
-                        ? key
-                        : "\(key) (\(bits.joined(separator: ", ")))"
-                    
-                    if let hint = spec["hint"] as? String, !hint.isEmpty {
-                        print("    \(header) — \(hint)")
-                    } else {
-                        print("    \(header)")
-                    }
+                if let hint = spec?["hint"]?.stringValue, !hint.isEmpty {
+                    print("    \(header): \(hint)")
+                } else {
+                    print("    \(header)")
                 }
             }
-            
-            let outputs = (dict["outputs"] as? [String: Any]) ?? [:]
-            
-            if !outputs.isEmpty {
-                print("  outputs:")
-                
-                for key in outputs.keys.sorted() {
-                    let raw = outputs[key]
-                    let rendered: String
-                    
-                    if let string = raw as? String {
-                        rendered = string
-                    } else if let any = raw,
-                        let data = try? JSONSerialization.data(withJSONObject: any),
-                        let string = String(data: data, encoding: .utf8) {
-                        rendered = string
-                    } else {
-                        rendered = ""
-                    }
-                    
-                    print("    \(key) ← \(rendered)")
-                }
-            }
-            
+        }
+        
+        if let returns = result["returns"]?.stringValue {
+            print("  returns: \(returns)")
         }
     }
     
     // MARK: - Private
-}
-
-private func renderPlainValue(_ value: Any) -> String {
-    if let number = value as? NSNumber, CFGetTypeID(number) == CFBooleanGetTypeID() {
-        return number.boolValue ? "true" : "false"
-    }
-    
-    if value is NSNull { return "null" }
-    if let string = value as? String { return string }
-    
-    if JSONSerialization.isValidJSONObject(value),
-        let data = try? JSONSerialization.data(
-            withJSONObject: value,
-            options: [.sortedKeys, .withoutEscapingSlashes]
-        ),
-        let string = String(data: data, encoding: .utf8) {
-        return string
-    }
-    
-    return "\(value)"
 }

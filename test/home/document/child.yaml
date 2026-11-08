@@ -1,0 +1,7 @@
+# E2E child: echoes its input back.
+procedures:
+  main:
+    access: public
+    parameters: [ tag: String ]
+    returns: "Dictionary<String, Any>"
+    result: { dictionary: { tag_out: { format: "child:${tag}", with: { tag: { ref: tag } } } } }

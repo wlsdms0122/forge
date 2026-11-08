@@ -7,6 +7,7 @@
 
 import ArgumentParser
 import Foundation
+import Forge
 
 struct ServiceRestartCommand: ParsableCommand {
     // MARK: - Property
@@ -15,7 +16,8 @@ struct ServiceRestartCommand: ParsableCommand {
         abstract: "Stop and start a managed service.",
         discussion: """
             The restarted process picks up the current `[service.<name>]`
-            spec — pair with `forge service reload` to apply config changes.
+            spec, so a restart after `forge service reload` applies config
+            changes.
             """
     )
     
@@ -30,13 +32,9 @@ struct ServiceRestartCommand: ParsableCommand {
     // MARK: - Initializer
     // MARK: - Public
     func run() throws {
-        controlCall(
-            global: global,
-            method: "service.restart",
-            params: ["name": name],
-            context: "service restart",
-            json: json
-        )
+        let client = Client(global, context: "service restart")
+        
+        client.call("service.restart", ["name": .string(name)]).printResult(json: json)
     }
     
     // MARK: - Private

@@ -7,6 +7,7 @@
 
 import ArgumentParser
 import Foundation
+import Forge
 
 struct ServiceShutdownCommand: ParsableCommand {
     // MARK: - Property
@@ -30,13 +31,9 @@ struct ServiceShutdownCommand: ParsableCommand {
     // MARK: - Initializer
     // MARK: - Public
     func run() throws {
-        controlCall(
-            global: global,
-            method: "service.shutdown",
-            params: ["name": name],
-            context: "service shutdown",
-            json: json
-        )
+        let client = Client(global, context: "service shutdown")
+        
+        client.call("service.shutdown", ["name": .string(name)]).printResult(json: json)
     }
     
     // MARK: - Private

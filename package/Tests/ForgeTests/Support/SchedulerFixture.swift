@@ -8,17 +8,17 @@
 import Foundation
 @testable import Forge
 
-/// The stage that scheduler tests set up.
-///
-/// Running a scheduler at all requires a workflow catalog, schedule definitions, a fire
-/// ledger, and a runner, so a test spends twenty lines before reaching its actual concern
-/// (does the policy run correctly). Those twenty lines are the same in every test, so they
-/// are set up once here. The stage's lifetime is owned by the temporary directory.
+// The stage that scheduler tests set up.
+//
+// Running a scheduler at all requires a workflow reader, schedule definitions, a fire
+// ledger, and a runner, so a test spends twenty lines before reaching its actual concern
+// (does the policy run correctly). Those twenty lines are the same in every test, so they
+// are set up once here. The stage's lifetime is owned by the temporary directory.
 struct SchedulerFixture {
-    /// A spec-format workflow fixture — the file basename is its identity, so it carries name and body together.
+    // A workflow fixture: its path is its identity, so it carries path and body together.
     struct WorkflowFixture {
         // MARK: - Property
-        let name: String
+        let path: String
         let yaml: String
 
         // MARK: - Initializer
@@ -35,9 +35,9 @@ struct SchedulerFixture {
     }
 
     // MARK: - Public
-    /// A workflow that leaves its tag in a marker file when run. Who ran, and when, is read from the file contents.
+    // A workflow that leaves its tag in a marker file when run. Who ran, and when, is read from the file contents.
     func markerWorkflow(
-        name: String,
+        path: String,
         marker: URL,
         tag: String,
         sleep: Double,
@@ -50,20 +50,19 @@ struct SchedulerFixture {
         }
 
         return WorkflowFixture(
-            name: name,
+            path: path,
             yaml: """
-            name: \(name)
-            steps:
-              - id: s
-                shell:
-                  command: ["/bin/sh", "-c", "\(script)"]
+            failing: [nonzero_exit, timeout]
+            body:
+              - let: s
+                value: { call: { procedure: shell, arguments: { command: ["/bin/sh", "-c", "\(script)"] } } }
             """
         )
     }
 
     func write(_ workflow: WorkflowFixture, to directory: URL) throws {
-        try workflow.yaml.write(
-            to: directory.appendingPathComponent("\(workflow.name).yaml"),
+        try workflowFile(workflow.yaml).write(
+            to: directory.appendingPathComponent(workflow.path),
             atomically: true, encoding: .utf8)
     }
 
@@ -75,21 +74,26 @@ struct SchedulerFixture {
         (try? String(contentsOf: marker, encoding: .utf8)) ?? ""
     }
 
-    func catalog(directory: URL?) -> SpecCatalog {
-        SpecCatalog(directory: directory, loader: ForgeSpec.loader())
+    func reader(directory: URL?) throws -> WorkflowReader {
+        try WorkflowReader(directory: directory)
     }
 
-    func runner(catalog: SpecCatalog) -> SpecWorkflowRunner {
-        SpecWorkflowRunner(
-            catalog: catalog,
+    func runner(
+        workflows: WorkflowReader,
+        policy: [String: [String]] = ["*": ["*"]]
+    ) -> WorkflowRunner {
+        WorkflowRunner(
+            workflows: workflows,
             eventBus: WorkflowEventBus(),
-            policyStore: PolicyStore(seed: ["*": ["*"]]),
+            policyStore: PolicyStore(seed: policy),
             pool: WorkflowPool(maximumConcurrentSteps: Int.max, maximumActiveRuns: Int.max),
             workRegistry: WorkRegistry(),
             tokenAuthority: TokenAuthority(),
-            shell: LiveShell(),
-            agent: LiveAgent(executor: Executor(backend: StubBackend("noop"))),
-            resources: LiveResources(store: ResourceStore(directory: nil))
+            capabilities: CapabilitySet(
+                shell: LiveShell(),
+                agent: LiveAgent(executor: AgentExecutor(backend: StubBackend("noop"))),
+                resources: LiveResources(workingDirectory: WorkingDirectory(directory: nil))
+            )
         )
     }
 
@@ -97,78 +101,84 @@ struct SchedulerFixture {
         workflows: [WorkflowFixture],
         scheduleYAML: [String: String],
         ledgerPath: URL? = nil
-    ) throws -> WorkflowScheduler {
-        let workflowDirectoryectory = try temporary.make("wf")
+    ) async throws -> WorkflowScheduler {
+        let workflowDirectory = try temporary.make("wf")
 
         for workflow in workflows {
-            try write(workflow, to: workflowDirectoryectory)
+            try write(workflow, to: workflowDirectory)
         }
 
-        let scheduleDirectoryectory = try temporary.make("schedule")
+        let scheduleDirectory = try temporary.make("schedule")
 
         for (id, yaml) in scheduleYAML {
             try yaml.write(
-                to: scheduleDirectoryectory.appendingPathComponent("\(id).yaml"),
+                to: scheduleDirectory.appendingPathComponent("\(id).yaml"),
                 atomically: true, encoding: .utf8)
         }
 
         let seeds = scheduleYAML.mapValues(Self.declaredWorkflow)
-        let store = try scheduleStore(
-            configDir: scheduleDirectoryectory,
-            runtimeDirectory: try temporary.make("schedule-rt"),
-            ids: seeds)
+        let store = try scheduleStore(directory: scheduleDirectory, ids: seeds)
         let path = try ledgerPath ?? temporary.file("fire-ledger.json")
-        let workflowStore = catalog(directory: workflowDirectoryectory)
+        let reader = try self.reader(directory: workflowDirectory)
 
         return WorkflowScheduler(
-            workflowStore: workflowStore,
+            workflows: reader,
             store: store,
             ledger: FireLedger(path: path),
-            runner: runner(catalog: workflowStore),
+            runner: runner(workflows: reader),
             tickIntervalSeconds: 1
         )
     }
 
+    // A once stage whose one-shot is the file `onceFileName` written into `directory`.
     func onceScheduler(
         onceYAML: String,
         onceFileName: String,
-        configDir: URL,
-        runtimeDirectory: URL,
-        marker: URL,
-        runtimeOwned: Bool = false
-    ) throws -> (scheduler: WorkflowScheduler, ledger: FireLedger, onceFile: URL) {
-        let workflow = markerWorkflow(name: "wfonce", marker: marker, tag: "1", sleep: 0.1)
-        let workflowDirectoryectory = try temporary.make("once-wf")
-        try write(workflow, to: workflowDirectoryectory)
-        let onceFile = (runtimeOwned ? runtimeDirectory : configDir)
-            .appendingPathComponent(onceFileName)
+        directory: URL,
+        marker: URL
+    ) async throws -> (scheduler: WorkflowScheduler, ledger: FireLedger, onceFile: URL) {
+        let onceFile = directory.appendingPathComponent(onceFileName)
         try onceYAML.write(to: onceFile, atomically: true, encoding: .utf8)
-        let store = try scheduleStore(
-            configDir: configDir,
-            runtimeDirectory: runtimeDirectory,
+        let stage = try await onceStage(
+            directory: directory,
+            marker: marker,
             ids: [(onceFileName as NSString).deletingPathExtension: Self.declaredWorkflow(onceYAML)])
+
+        return (stage.scheduler, stage.ledger, onceFile)
+    }
+
+    // A scheduler over `directory` whose workflow root holds `wfonce.yaml`, a workflow that leaves "1" in `marker`.
+    func onceStage(
+        directory: URL,
+        marker: URL,
+        ids: [String: String] = [:]
+    ) async throws -> (scheduler: WorkflowScheduler, ledger: FireLedger, store: ScheduleStore) {
+        let workflow = markerWorkflow(path: "wfonce.yaml", marker: marker, tag: "1", sleep: 0.1)
+        let workflowDirectory = try temporary.make("once-wf")
+        try write(workflow, to: workflowDirectory)
+        let store = try scheduleStore(directory: directory, ids: ids)
         let ledger = FireLedger(path: try temporary.make("once-led").appendingPathComponent("l.json"))
-        let workflowStore = catalog(directory: workflowDirectoryectory)
+        let reader = try self.reader(directory: workflowDirectory)
         let scheduler = WorkflowScheduler(
-            workflowStore: workflowStore,
+            workflows: reader,
             store: store,
             ledger: ledger,
-            runner: runner(catalog: workflowStore),
+            runner: runner(workflows: reader),
             tickIntervalSeconds: 1
         )
 
-        return (scheduler, ledger, onceFile)
+        return (scheduler, ledger, store)
     }
 
-    /// A store that starts enabled, with (id, workflow) pre-seeded into the ledger.
-    func scheduleStore(configDir: URL?, runtimeDirectory: URL?, ids: [String: String]) throws -> ScheduleStore {
-        let state = try temporary.make("enabled").appendingPathComponent("schedule-enabled.json")
-        try JSONSerialization.data(withJSONObject: ids).write(to: state)
+    // A store that starts enabled, with (id, workflow) pre-seeded into the ledger.
+    func scheduleStore(directory: URL, ids: [String: String]) throws -> ScheduleStore {
+        let enabledFile = try temporary.make("enabled").appendingPathComponent("schedule-enabled.json")
+        try JSONSerialization.data(withJSONObject: ids).write(to: enabledFile)
 
-        return ScheduleStore(configDir: configDir, runtimeDirectory: runtimeDirectory, stateFile: state)
+        return ScheduleStore(directory: directory, enabledFile: enabledFile)
     }
 
-    /// A path that cannot be created because its parent is a file — triggers a ledger persist failure.
+    // A path that cannot be created because its parent is a file — triggers a ledger persist failure.
     func unwritableLedgerPath(_ tag: String) throws -> URL {
         let blocker = try temporary.make("led-block-\(tag)").appendingPathComponent("blocker")
         try Data("x".utf8).write(to: blocker)

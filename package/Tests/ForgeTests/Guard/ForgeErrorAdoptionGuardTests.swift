@@ -9,7 +9,7 @@ import Foundation
 import Testing
 @testable import Forge
 
-/// A guard that reads the sources and checks an invariant. It inspects the *shape* of the codebase, not the *behavior* of the target.
+// A guard that reads the sources and checks an invariant. It inspects the *shape* of the codebase, not the *behavior* of the target.
 @Suite("ForgeErrorAdoptionGuard Tests")
 struct ForgeErrorAdoptionGuardTests {
     // MARK: - Property
@@ -19,7 +19,9 @@ struct ForgeErrorAdoptionGuardTests {
     func everyDeclaredErrorTypeAdoptsForgeError() throws {
         // Given
         let package = try PackageSource()
-        let files = try package.swiftFiles(in: package.sources)
+        // The binary's own targets, whose errors a client meets.
+        let files = try package.swiftFiles(in: package.sources.appendingPathComponent("Forge"))
+            + package.swiftFiles(in: package.sources.appendingPathComponent("ForgeCLI"))
         #expect(files.count > 30, "if no sources could be read, this guard is meaningless rather than passing")
         let declaration = try NSRegularExpression(
             pattern: #"(?:struct|enum|final class|class)\s+(\w+)\s*:\s*([^\{\n]*)"#)
@@ -44,7 +46,7 @@ struct ForgeErrorAdoptionGuardTests {
 
                 guard tokens.contains("Error") || tokens.contains("Swift.Error") else { return }
                 guard !tokens.contains(where: { token in
-                    token.hasSuffix("ForgeError") || token.hasSuffix("BackendError")
+                    token.hasSuffix("ForgeError")
                 }) else { return }
 
                 offenders.append(

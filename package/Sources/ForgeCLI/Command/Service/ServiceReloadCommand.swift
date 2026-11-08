@@ -7,12 +7,13 @@
 
 import ArgumentParser
 import Foundation
+import Forge
 
 struct ServiceReloadCommand: ParsableCommand {
     // MARK: - Property
     static let configuration = CommandConfiguration(
         commandName: "reload",
-        abstract: "Re-read [service] entries from .forge/config.toml.",
+        abstract: "Re-read [service] entries from config.toml.",
         discussion: """
             Applies the current toml to the supervisor: removed services are
             stopped, added ones with auto_spawn start immediately, changed
@@ -28,13 +29,9 @@ struct ServiceReloadCommand: ParsableCommand {
     // MARK: - Initializer
     // MARK: - Public
     func run() throws {
-        controlCall(
-            global: global,
-            method: "service.reload",
-            params: [:],
-            context: "service reload",
-            json: json
-        )
+        let client = Client(global, context: "service reload")
+        
+        client.call("service.reload").printResult(json: json)
     }
     
     // MARK: - Private

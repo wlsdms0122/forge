@@ -34,15 +34,15 @@ actor ServiceSupervisor {
     private var booted = false
     
     private let tokenAuthority: TokenAuthority
-    private let stateDir: URL
+    private let directory: URL
     
     // MARK: - Initializer
-    init(services: [ServiceConfig], runtimeDirectory: URL, tokenAuthority: TokenAuthority) {
+    init(services: [ServiceConfig], directory: URL, tokenAuthority: TokenAuthority) {
         self.specs = Dictionary(
             uniqueKeysWithValues: services.map { service in (service.name, service) }
         )
         self.tokenAuthority = tokenAuthority
-        self.stateDir = runtimeDirectory.appendingPathComponent("services", isDirectory: true)
+        self.directory = directory
     }
     
     // MARK: - Public
@@ -51,7 +51,7 @@ actor ServiceSupervisor {
         
         booted = true
         
-        try? FileManager.default.createDirectory(at: stateDir, withIntermediateDirectories: true)
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         
         await reapStaleOrphans()
         
@@ -93,7 +93,7 @@ actor ServiceSupervisor {
         }
         
         guard !shuttingDown else {
-            throw ProtocolError("service.run: daemon is shutting down")
+            throw DaemonShuttingDown("service.run: daemon is shutting down")
         }
         
         await start(name)
@@ -118,7 +118,7 @@ actor ServiceSupervisor {
         }
         
         guard !shuttingDown else {
-            throw ProtocolError("service.restart: daemon is shutting down")
+            throw DaemonShuttingDown("service.restart: daemon is shutting down")
         }
         
         await stop(name)
@@ -381,7 +381,7 @@ actor ServiceSupervisor {
     }
     
     private func openLogFile(_ spec: ServiceConfig) throws -> FileHandle {
-        let url = spec.logFile ?? stateDir.appendingPathComponent("\(spec.name).log")
+        let url = spec.logFile ?? directory.appendingPathComponent("\(spec.name).log")
         let fileManager = FileManager.default
         
         try fileManager.createDirectory(
@@ -400,7 +400,7 @@ actor ServiceSupervisor {
     }
     
     private func pidFileURL(_ name: String) -> URL {
-        stateDir.appendingPathComponent("\(name).pid")
+        directory.appendingPathComponent("\(name).pid")
     }
     
     private func writePidFile(name: String, pid: Int32, command: [String]) {
@@ -424,7 +424,7 @@ actor ServiceSupervisor {
         let fileManager = FileManager.default
         
         guard let entries = try? fileManager.contentsOfDirectory(
-            at: stateDir,
+            at: directory,
             includingPropertiesForKeys: nil
         ) else {
             return
@@ -567,42 +567,4 @@ actor ServiceSupervisor {
             autoSpawn: specs[name]?.autoSpawn ?? false
         )
     }
-}
-
-private final class ExitBox: @unchecked Sendable {
-    // MARK: - Property
-    private let lock = NSLock()
-    private var code: Int32?
-    private var waiter: CheckedContinuation<Int32, Never>?
-    
-    // MARK: - Initializer
-    // MARK: - Public
-    func complete(_ exitCode: Int32) {
-        lock.lock()
-        
-        if let waiting = waiter {
-            waiter = nil
-            lock.unlock()
-            waiting.resume(returning: exitCode)
-        } else {
-            code = exitCode
-            lock.unlock()
-        }
-    }
-    
-    func wait() async -> Int32 {
-        await withCheckedContinuation { continuation in
-            lock.lock()
-            
-            if let code {
-                lock.unlock()
-                continuation.resume(returning: code)
-            } else {
-                waiter = continuation
-                lock.unlock()
-            }
-        }
-    }
-    
-    // MARK: - Private
 }

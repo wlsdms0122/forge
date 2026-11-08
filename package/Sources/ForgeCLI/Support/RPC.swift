@@ -14,37 +14,40 @@ enum RPC {
     // MARK: - Public
     static func requestLine(
         method: String,
-        params: [String: Any],
+        params: [String: JSONValue],
         idPrefix: String = "fc"
     ) -> Data? {
-        let request: [String: Any] = [
-            "id": "\(idPrefix)-\(UUID().uuidString.prefix(8))",
-            "method": method,
-            "params": params
+        let request: JSONValue = [
+            "id": .string("\(idPrefix)-\(UUID().uuidString.prefix(8))"),
+            "method": .string(method),
+            "params": .object(params)
         ]
         
         return try? JSONSerialization.data(
-            withJSONObject: request,
+            withJSONObject: request.jsonObject,
             options: [.withoutEscapingSlashes]
         )
     }
     
     static func parseFrame(_ frame: Data) -> RPCResult {
-        guard let object = try? JSONSerialization.jsonObject(with: frame) as? [String: Any] else {
+        guard
+            let object = try? JSONSerialization.jsonObject(with: frame) as? [String: Any],
+            let response = try? JSONValue(jsonObject: object)
+        else {
             return .err(type: "ClientError", message: "malformed daemon response")
         }
         
-        if let error = object["error"] as? [String: Any] {
+        if let error = response["error"]?.objectValue {
             return .err(
-                type: (error["type"] as? String) ?? "RPCError",
-                message: (error["message"] as? String) ?? "rpc error"
+                type: error["type"]?.stringValue ?? "RPCError",
+                message: error["message"]?.stringValue ?? "rpc error"
             )
         }
         
-        return .ok((object["result"] as? [String: Any]) ?? [:])
+        return .ok(.object(response["result"]?.objectValue ?? [:]))
     }
     
-    static func call(socketPath: String, method: String, params: [String: Any]) -> RPCResult {
+    static func call(socketPath: String, method: String, params: [String: JSONValue]) -> RPCResult {
         guard let requestData = requestLine(method: method, params: params) else {
             return .err(type: "ClientError", message: "encode request failed")
         }
@@ -67,45 +70,4 @@ enum RPC {
     }
     
     // MARK: - Private
-}
-
-func resolveToken(_ flag: String?) -> String {
-    if let flag, !flag.isEmpty { return flag }
-    
-    if
-        let fromEnv = ProcessInfo.processInfo.environment["FORGE_ACCESS_TOKEN"],
-        !fromEnv.isEmpty
-    {
-        return fromEnv
-    }
-    
-    die(
-        "no token — pass --token or set FORGE_ACCESS_TOKEN"
-            + " (issue one with `forge token issue <principal>`)",
-        code: 4
-    )
-}
-
-func callRPC(
-    socketPath: String,
-    method: String,
-    params: [String: Any],
-    token: String
-) -> RPCResult {
-    var params = params
-    params["token"] = token
-    
-    return RPC.call(socketPath: socketPath, method: method, params: params)
-}
-
-func dieRPC(_ context: String, type: String, message: String) -> Never {
-    die("\(context): \(message)", code: type == "TokenRejected" ? 6 : 5)
-}
-
-func resolveSocket(_ global: GlobalOptions) throws -> String {
-    do {
-        return try Session.clientSocket(session: global.session)
-    } catch {
-        die("\(error)", code: 4)
-    }
 }

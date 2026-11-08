@@ -7,15 +7,16 @@
 
 import ArgumentParser
 import Foundation
+import Forge
 
 struct ServiceRunCommand: ParsableCommand {
     // MARK: - Property
     static let configuration = CommandConfiguration(
         commandName: "run",
-        abstract: "Start a managed service (declared in .forge/config.toml).",
+        abstract: "Start a managed service (declared in config.toml).",
         discussion: """
             Spawns the service process under the daemon's supervisor.
-            Idempotent — running services are left alone. A service that hit
+            Idempotent: running services are left alone. A service that hit
             its crash loop limit (state `failed`) is given a fresh start.
             Only services declared in `[service.<name>]` can be run; for a
             new entry, edit the toml and `forge service reload` first.
@@ -33,13 +34,9 @@ struct ServiceRunCommand: ParsableCommand {
     // MARK: - Initializer
     // MARK: - Public
     func run() throws {
-        controlCall(
-            global: global,
-            method: "service.run",
-            params: ["name": name],
-            context: "service run",
-            json: json
-        )
+        let client = Client(global, context: "service run")
+        
+        client.call("service.run", ["name": .string(name)]).printResult(json: json)
     }
     
     // MARK: - Private

@@ -7,6 +7,7 @@
 
 import ArgumentParser
 import Foundation
+import Forge
 
 struct WorkflowCancelCommand: ParsableCommand {
     // MARK: - Property
@@ -17,8 +18,8 @@ struct WorkflowCancelCommand: ParsableCommand {
     
     @OptionGroup var global: GlobalOptions
     
-    @Argument(help: "Workflow id to cancel.")
-    var workflowID: String
+    @Argument(help: "Run id to cancel.")
+    var runID: String
     
     @Flag(help: "Emit JSON.")
     var json: Bool = false
@@ -26,21 +27,9 @@ struct WorkflowCancelCommand: ParsableCommand {
     // MARK: - Initializer
     // MARK: - Public
     func run() throws {
-        let socketPath = try resolveSocket(global)
-        let token = resolveToken(global.token)
+        let client = Client(global, context: "workflow cancel")
         
-        switch callRPC(
-            socketPath: socketPath,
-            method: "workflow.cancel",
-            params: ["workflow_id": workflowID],
-            token: token
-        ) {
-        case .ok(let dict):
-            if json { printJSON(dict) } else { print(renderResultPlain(dict)) }
-        
-        case .err(let type, let message):
-            dieRPC("workflow cancel", type: type, message: message)
-        }
+        client.call("workflow.cancel", ["run_id": .string(runID)]).printResult(json: json)
     }
     
     // MARK: - Private

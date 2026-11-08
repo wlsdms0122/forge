@@ -11,11 +11,9 @@ import TOMLKit
 enum ConfigLoader {
     struct PartialConfig {
         // MARK: - Property
-        var providers: [ProviderConfig]?
+        var providers: [PartialProvider]?
         var services: [PartialService]?
-        var workflowDirectory: String?
-        var scheduleDirectory: String?
-        var resourceDirectory: String?
+        var workingDirectory: String?
         var policyDirectory: String?
         var logJSONL: String?
         var errorLog: String?
@@ -31,6 +29,17 @@ enum ConfigLoader {
     struct PartialHooks {
         // MARK: - Property
         var logging: Bool?
+        
+        // MARK: - Initializer
+        // MARK: - Public
+        // MARK: - Private
+    }
+    
+    struct PartialProvider {
+        // MARK: - Property
+        var name: String
+        var kind: String?
+        var settings: [String: String] = [:]
         
         // MARK: - Initializer
         // MARK: - Public
@@ -67,50 +76,56 @@ enum ConfigLoader {
     // MARK: - Property
     // MARK: - Initializer
     // MARK: - Public
-    static func resolveConfigPath(_ explicit: String?, sessionHome: URL) -> URL? {
+    // A file the caller named is the one read, so a name with no file behind
+    // it is refused; with none named, the instance's own is read if it is there.
+    static func resolveConfigPath(_ explicit: String?, instanceHome: URL) throws -> URL? {
         if let explicit {
             let url = URL(fileURLWithPath: explicit)
             
-            return FileManager.default.fileExists(atPath: url.path) ? url : nil
+            guard FileManager.default.fileExists(atPath: url.path) else {
+                throw ConfigError("config \(url.path): no such file")
+            }
+            
+            return url
         }
         
-        let candidate = sessionHome.appendingPathComponent("config.toml")
+        let candidate = instanceHome.appendingPathComponent("config.toml")
         
         return FileManager.default.fileExists(atPath: candidate.path) ? candidate : nil
     }
     
-    static func load(configPath: String? = nil, sessionHome: URL) throws -> ForgeConfig {
+    static func load(configPath: String? = nil, instanceHome: URL) throws -> ForgeConfig {
         let environment = ProcessInfo.processInfo.environment
-        let tomlURL = resolveConfigPath(configPath, sessionHome: sessionHome)
+        let tomlURL = try resolveConfigPath(configPath, instanceHome: instanceHome)
         let fromFile = try tomlURL.map { url in try parse(url) } ?? PartialConfig()
         
         return build(
             file: fromFile,
             tomlDirectory: tomlURL?.deletingLastPathComponent(),
-            sessionHome: sessionHome,
+            instanceHome: instanceHome,
             environment: environment
         )
     }
     
     static func loadWithSources(
         configPath: String? = nil,
-        sessionHome: URL,
+        instanceHome: URL,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) throws -> ConfigReport {
-        try loadResolved(configPath: configPath, sessionHome: sessionHome, environment: environment).report
+        try loadResolved(configPath: configPath, instanceHome: instanceHome, environment: environment).report
     }
     
     static func loadResolved(
         configPath: String? = nil,
-        sessionHome: URL,
+        instanceHome: URL,
         environment: [String: String] = ProcessInfo.processInfo.environment
     ) throws -> (config: ForgeConfig, report: ConfigReport) {
-        let tomlURL = resolveConfigPath(configPath, sessionHome: sessionHome)
+        let tomlURL = try resolveConfigPath(configPath, instanceHome: instanceHome)
         let fromFile = try tomlURL.map { url in try parse(url) } ?? PartialConfig()
         let config = build(
             file: fromFile,
             tomlDirectory: tomlURL?.deletingLastPathComponent(),
-            sessionHome: sessionHome,
+            instanceHome: instanceHome,
             environment: environment
         )
         
@@ -122,23 +137,9 @@ enum ConfigLoader {
         
         entries.append(
             .init(
-                key: "workflow_directory",
-                value: config.workflowDirectory?.path ?? "(unset)",
-                source: source(toml: fromFile.workflowDirectory, environmentName: "FORGE_WORKFLOW_DIRECTORY")
-            )
-        )
-        entries.append(
-            .init(
-                key: "schedule_directory",
-                value: config.scheduleDirectory?.path ?? "(unset)",
-                source: source(toml: fromFile.scheduleDirectory, environmentName: "FORGE_SCHEDULE_DIRECTORY")
-            )
-        )
-        entries.append(
-            .init(
-                key: "resource_directory",
-                value: config.resourceDirectory?.path ?? "(unset)",
-                source: source(toml: fromFile.resourceDirectory, environmentName: "FORGE_RESOURCE_DIRECTORY")
+                key: "working_directory",
+                value: config.workingDirectory?.path ?? "(unset)",
+                source: source(toml: fromFile.workingDirectory, environmentName: "FORGE_WORKING_DIRECTORY")
             )
         )
         entries.append(
@@ -184,17 +185,21 @@ enum ConfigLoader {
             : .builtin
         
         for provider in config.providers {
-            let description = provider.settings
-                .filter { key, _ in key != "api_key" }
-                .sorted { left, right in left.key < right.key }
-                .map { key, value in "\(key)=\(value)" }
-                .joined(separator: " ")
-            let keyState = provider.settings["api_key"] == nil ? "" : "  api_key=(set)"
+            let description: String
+            
+            switch provider.backend {
+            case let .claudeCLI(executable), let .codexCLI(executable):
+                description = "executable=\(executable)"
+            
+            case let .openAICompatible(endpoint, apiKey):
+                description = "endpoint=\(endpoint.absoluteString)"
+                    + (apiKey == nil ? "" : "  api_key=(set)")
+            }
             
             entries.append(
                 .init(
                     key: "provider.\(provider.name)",
-                    value: "kind=\(provider.kind)  \(description)\(keyState)",
+                    value: "kind=\(provider.backend.kind.rawValue)  \(description)",
                     source: providersSource
                 )
             )
@@ -261,94 +266,52 @@ enum ConfigLoader {
     
     static func parse(_ url: URL) throws -> PartialConfig {
         let raw = try String(contentsOf: url, encoding: .utf8)
-        let table = try TOMLTable(string: raw)
+        let file: ConfigTable
+        
+        do {
+            file = ConfigTable(try TOMLTable(string: raw))
+        } catch {
+            throw ConfigError("config \(url.path): \(error)")
+        }
+        
         var partial = PartialConfig()
         
-        if let directory = table["directory"]?.table {
-            if let value = directory["workflow"]?.string { partial.workflowDirectory = value }
-            if let value = directory["schedule"]?.string { partial.scheduleDirectory = value }
-            if let value = directory["resource"]?.string { partial.resourceDirectory = value }
-            if let value = directory["policy"]?.string { partial.policyDirectory = value }
+        try file.admit(["directory", "log", "hooks", "pool", "provider", "service"])
+        
+        if let directory = try file.table("directory") {
+            try directory.admit(["working", "policy"])
+            
+            partial.workingDirectory = try directory.string("working")
+            partial.policyDirectory = try directory.string("policy")
         }
         
-        if let log = table["log"]?.table {
-            if let value = log["jsonl"]?.string { partial.logJSONL = value }
-            if let value = log["error"]?.string { partial.errorLog = value }
-            if let value = log["maximum_bytes"]?.int { partial.logMaximumBytes = value }
+        if let log = try file.table("log") {
+            try log.admit(["jsonl", "error", "maximum_bytes"])
+            
+            partial.logJSONL = try log.string("jsonl")
+            partial.errorLog = try log.string("error")
+            partial.logMaximumBytes = try log.int("maximum_bytes")
         }
         
-        if let hooks = table["hooks"]?.table {
-            if let value = hooks["logging"]?.bool { partial.hooks.logging = value }
+        if let hooks = try file.table("hooks") {
+            try hooks.admit(["logging"])
+            
+            partial.hooks.logging = try hooks.bool("logging")
         }
         
-        if let pool = table["pool"]?.table {
-            if let value = pool["maximum_concurrent_steps"]?.int {
-                partial.pool.maximumConcurrentSteps = value
-            }
+        if let pool = try file.table("pool") {
+            try pool.admit(["maximum_concurrent_steps", "maximum_active_runs"])
             
-            if let value = pool["maximum_active_runs"]?.int { partial.pool.maximumActiveRuns = value }
+            partial.pool.maximumConcurrentSteps = try pool.int("maximum_concurrent_steps")
+            partial.pool.maximumActiveRuns = try pool.int("maximum_active_runs")
         }
         
-        if let providers = table["provider"]?.table {
-            var list: [ProviderConfig] = []
-            
-            for name in providers.keys {
-                guard let block = providers[name]?.table else { continue }
-                
-                var kind = ""
-                var settings: [String: String] = [:]
-                
-                for key in block.keys {
-                    guard let value = block[key]?.string else { continue }
-                    
-                    if key == "kind" { kind = value } else { settings[key] = value }
-                }
-                
-                list.append(ProviderConfig(name: name, kind: kind, settings: settings))
-            }
-            
-            partial.providers = list.sorted { left, right in left.name < right.name }
+        if let providers = try file.table("provider") {
+            partial.providers = try providers.tables().map { name, block in try provider(name, block) }
         }
         
-        if let services = table["service"]?.table {
-            var list: [PartialService] = []
-            
-            for name in services.keys {
-                guard let block = services[name]?.table else { continue }
-                
-                var service = PartialService(name: name)
-                
-                if let array = block["command"]?.array {
-                    let strings = array.compactMap { element in element.string }
-                    service.command = strings.count == array.count ? strings : []
-                }
-                
-                if let value = block["working_directory"]?.string { service.workingDirectory = value }
-                if let value = block["auto_spawn"]?.bool { service.autoSpawn = value }
-                if let value = block["log_file"]?.string { service.logFile = value }
-                
-                if let value = block["restart_backoff_initial_milliseconds"]?.int {
-                    service.backoffInitialMilliseconds = value
-                }
-                
-                if let value = block["restart_backoff_maximum_milliseconds"]?.int {
-                    service.backoffMaximumMilliseconds = value
-                }
-                
-                if let value = block["restart_crash_loop_limit"]?.int {
-                    service.crashLoopLimit = value
-                }
-                
-                if let environmentTable = block["environment"]?.table {
-                    for key in environmentTable.keys {
-                        if let value = environmentTable[key]?.string { service.environment[key] = value }
-                    }
-                }
-                
-                list.append(service)
-            }
-            
-            partial.services = list.sorted { left, right in left.name < right.name }
+        if let services = try file.table("service") {
+            partial.services = try services.tables().map { name, block in try service(name, block) }
         }
         
         return partial
@@ -357,13 +320,13 @@ enum ConfigLoader {
     static func build(
         file: PartialConfig,
         tomlDirectory: URL?,
-        sessionHome: URL,
+        instanceHome: URL,
         environment: [String: String]
     ) -> ForgeConfig {
         let providers = resolveProviders(file.providers, environment: environment)
-        let anchor = tomlDirectory ?? sessionHome
-        let runtimeDirectory = Session.runtimeDirectory(in: sessionHome)
-        let logDir = sessionHome.appendingPathComponent("log")
+        let anchor = tomlDirectory ?? instanceHome
+        let stateDirectory = Instance.stateDirectory(in: instanceHome)
+        let logDir = instanceHome.appendingPathComponent("log")
         let logJSONL = resolveURLWithDefault(
             cli: nil,
             environmentName: "FORGE_LOG_JSONL",
@@ -388,21 +351,19 @@ enum ConfigLoader {
             builtin: 50 * 1024 * 1024
         ).value
         
-        func catalogDir(_ environmentName: String, _ toml: String?, _ name: String) -> URL {
+        func directory(_ environmentName: String, _ toml: String?, _ name: String) -> URL {
             resolveURLWithDefault(
                 cli: nil,
                 environmentName: environmentName,
                 environment: environment,
                 toml: toml,
                 anchor: anchor,
-                fallback: sessionHome.appendingPathComponent(name)
+                fallback: instanceHome.appendingPathComponent(name)
             )
         }
         
-        let workflowDirectory = catalogDir("FORGE_WORKFLOW_DIRECTORY", file.workflowDirectory, "workflow")
-        let scheduleDirectory = catalogDir("FORGE_SCHEDULE_DIRECTORY", file.scheduleDirectory, "schedule")
-        let resourceDirectory = catalogDir("FORGE_RESOURCE_DIRECTORY", file.resourceDirectory, "resource")
-        let policyDirectory = catalogDir("FORGE_POLICY_DIRECTORY", file.policyDirectory, "policy")
+        let workingDirectory = directory("FORGE_WORKING_DIRECTORY", file.workingDirectory, "document")
+        let policyDirectory = directory("FORGE_POLICY_DIRECTORY", file.policyDirectory, "policy")
         
         let defaultHooks = ForgeConfig.HookToggles()
         let hooks = ForgeConfig.HookToggles(
@@ -467,14 +428,12 @@ enum ConfigLoader {
         }
         
         return ForgeConfig(
-            runtimeDirectory: runtimeDirectory,
+            stateDirectory: stateDirectory,
             logJSONL: logJSONL,
             errorLog: errorLog,
             logMaximumBytes: logMaximumBytes,
             providers: providers,
-            workflowDirectory: workflowDirectory,
-            scheduleDirectory: scheduleDirectory,
-            resourceDirectory: resourceDirectory,
+            workingDirectory: workingDirectory,
             policyDirectory: policyDirectory,
             services: services,
             hooks: hooks,
@@ -483,27 +442,73 @@ enum ConfigLoader {
     }
     
     // MARK: - Private
+    // Every key but `kind` is a setting, which the provider's kind admits.
+    private static func provider(_ name: String, _ block: ConfigTable) throws -> PartialProvider {
+        var provider = PartialProvider(name: name)
+        
+        for key in block.keys {
+            let value = try block.string(key)
+            
+            if key == "kind" { provider.kind = value } else { provider.settings[key] = value }
+        }
+        
+        return provider
+    }
+    
+    private static func service(_ name: String, _ block: ConfigTable) throws -> PartialService {
+        try block.admit([
+            "command",
+            "working_directory",
+            "environment",
+            "auto_spawn",
+            "log_file",
+            "restart_backoff_initial_milliseconds",
+            "restart_backoff_maximum_milliseconds",
+            "restart_crash_loop_limit"
+        ])
+        
+        var service = PartialService(name: name)
+        
+        service.command = try block.strings("command") ?? []
+        service.workingDirectory = try block.string("working_directory")
+        service.autoSpawn = try block.bool("auto_spawn")
+        service.logFile = try block.string("log_file")
+        service.backoffInitialMilliseconds = try block.int("restart_backoff_initial_milliseconds")
+        service.backoffMaximumMilliseconds = try block.int("restart_backoff_maximum_milliseconds")
+        service.crashLoopLimit = try block.int("restart_crash_loop_limit")
+        
+        if let environment = try block.table("environment") {
+            for key in environment.keys { service.environment[key] = try environment.string(key) }
+        }
+        
+        return service
+    }
+    
     private static func resolveProviders(
-        _ fromToml: [ProviderConfig]?,
+        _ fromToml: [PartialProvider]?,
         environment: [String: String]
     ) -> [ProviderConfig] {
-        let base = fromToml ?? [
-            ProviderConfig(name: "claude", kind: "claude-cli", settings: ["executable": "claude"])
-        ]
+        guard let fromToml else {
+            return [ProviderConfig(name: "claude", backend: .claudeCLI(executable: "claude"))]
+        }
         
-        return base.map { provider in
-            let envVar = "FORGE_PROVIDER_\(provider.name.uppercased())_API_KEY"
+        return fromToml.compactMap { provider in
+            let apiKey = environment["FORGE_PROVIDER_\(provider.name.uppercased())_API_KEY"]
             
-            guard let key = environment[envVar], !key.isEmpty else { return provider }
-            
-            var settings = provider.settings
-            settings["api_key"] = key
-            
-            return ProviderConfig(
-                name: provider.name,
-                kind: provider.kind,
-                settings: settings
-            )
+            do throws(ProviderDeclarationError) {
+                return try ProviderConfig(
+                    name: provider.name,
+                    kind: provider.kind,
+                    settings: provider.settings,
+                    apiKey: apiKey?.isEmpty == false ? apiKey : nil
+                )
+            } catch {
+                FileHandle.standardError.write(
+                    Data("forge: [provider.\(provider.name)]: \(error.message); skipped\n".utf8)
+                )
+                
+                return nil
+            }
         }
     }
     

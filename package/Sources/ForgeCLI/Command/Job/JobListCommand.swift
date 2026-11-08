@@ -7,6 +7,7 @@
 
 import ArgumentParser
 import Foundation
+import Forge
 
 struct JobListCommand: ParsableCommand {
     // MARK: - Property
@@ -17,13 +18,13 @@ struct JobListCommand: ParsableCommand {
     
     @OptionGroup var global: GlobalOptions
     
-    @Option(name: .customLong("origin-key"), help: "Filter by an origin-map key (e.g. thread_ts).")
+    @Option(name: .customLong("origin-key"), help: "Filter by an origin-object key (e.g. thread_ts).")
     var originKey: String?
     
     @Option(name: .customLong("origin-value"), help: "Value the origin key must equal.")
     var originValue: String?
     
-    @Option(help: "Filter to a status (free string — whatever vocabulary the tickets use).")
+    @Option(help: "Filter to a status (a free string, in whatever vocabulary the tickets use).")
     var status: String?
     
     @Flag(help: "Emit JSON.")
@@ -32,52 +33,42 @@ struct JobListCommand: ParsableCommand {
     // MARK: - Initializer
     // MARK: - Public
     func run() throws {
-        let socketPath = try resolveSocket(global)
-        let token = resolveToken(global.token)
+        let client = Client(global, context: "job list")
         
-        var params: [String: Any] = [:]
+        var params: [String: JSONValue] = [:]
         
-        if let originKey { params["origin_key"] = originKey }
-        if let originValue { params["origin_value"] = originValue }
-        if let status { params["status"] = status }
+        if let originKey { params["origin_key"] = .string(originKey) }
+        if let originValue { params["origin_value"] = .string(originValue) }
+        if let status { params["status"] = .string(status) }
         
-        switch callRPC(
-            socketPath: socketPath,
-            method: "job.list",
-            params: params,
-            token: token
-        ) {
-        case .err(let type, let message):
-            dieRPC("job list", type: type, message: message)
+        let result = client.call("job.list", params)
         
-        case .ok(let dict):
-            if json {
-                printJSON(dict)
-                
-                return
-            }
+        if json {
+            result.printJSON()
             
-            let jobs = (dict["jobs"] as? [[String: Any]]) ?? []
+            return
+        }
+        
+        let jobs = result["jobs"]?.arrayValue ?? []
+        
+        if jobs.isEmpty {
+            print("(no jobs)")
             
-            if jobs.isEmpty {
-                print("(no jobs)")
-                
-                return
-            }
+            return
+        }
+        
+        for job in jobs {
+            let id = job["id"]?.stringValue ?? "?"
+            let status = job["status"]?.stringValue ?? "-"
+            let title = job["title"]?.stringValue ?? ""
+            let parent = job["parent_job"]?.stringValue
+                .map { parentID in " ↳\(parentID)" } ?? ""
+            let open = (job["open"]?.boolValue ?? false) ? " ●open" : ""
+            let last = job["last_event"].map { event in
+                " (\(event["kind"]?.stringValue ?? "?") @ \(event["ts"]?.stringValue ?? "?"))"
+            } ?? ""
             
-            for job in jobs {
-                let id = job["id"] as? String ?? "?"
-                let status = job["status"] as? String ?? "?"
-                let title = job["title"] as? String ?? ""
-                let parent = (job["parent_job"] as? String)
-                    .map { parentID in " ↳\(parentID)" } ?? ""
-                let open = (job["open"] as? Bool ?? false) ? " ●open" : ""
-                let last = (job["last_event"] as? [String: Any]).map { event in
-                    " (\(event["kind"] as? String ?? "?") @ \(event["ts"] as? String ?? "?"))"
-                } ?? ""
-                
-                print("\(id)\t[\(status)]\(open)\t\(title)\(parent)\(last)")
-            }
+            print("\(id)\t[\(status)]\(open)\t\(title)\(parent)\(last)")
         }
     }
     

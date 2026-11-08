@@ -7,6 +7,7 @@
 
 import ArgumentParser
 import Foundation
+import Forge
 
 struct JobShowCommand: ParsableCommand {
     // MARK: - Property
@@ -26,21 +27,9 @@ struct JobShowCommand: ParsableCommand {
     // MARK: - Initializer
     // MARK: - Public
     func run() throws {
-        let socketPath = try resolveSocket(global)
-        let token = resolveToken(global.token)
+        let client = Client(global, context: "job show")
         
-        switch callRPC(
-            socketPath: socketPath,
-            method: "job.show",
-            params: ["id": id],
-            token: token
-        ) {
-        case .ok(let dict):
-            printJSON(dict)
-        
-        case .err(let type, let message):
-            dieRPC("job show", type: type, message: message)
-        }
+        client.call("job.show", ["id": .string(id)]).printResult(json: json)
     }
     
     // MARK: - Private
