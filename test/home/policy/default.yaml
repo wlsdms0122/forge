@@ -1,0 +1,11 @@
+# e2e dispatch policy — the operator may dispatch anything; workflow-to-workflow
+# chains are explicit, and `forbidden.yaml` deliberately has no route to `kernel.yaml`
+# so the policy-denial scenario can prove the gate.
+"system:admin":
+  - "*"
+"admin:*":
+  - "*"
+"cli:parent.yaml":
+  - child.yaml
+"cli:forbidden.yaml":
+  - child.yaml

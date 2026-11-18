@@ -1,0 +1,20 @@
+# Policy gate: a dispatch outside the allow list must fail, and catch must not
+# swallow it.
+uses: [Forge]
+procedures:
+  main:
+    access: public
+    returns: Any
+    body:
+      - var: blocked
+        type: Any
+      - let: attempted
+        value:
+          try:
+            body:
+              - set: blocked
+                value: { call: { procedure: dispatch, arguments: { path: kernel.yaml, timeout: 60 } } }
+            catch:
+              - set: blocked
+                value: should-not-swallow
+    result: { ref: blocked }

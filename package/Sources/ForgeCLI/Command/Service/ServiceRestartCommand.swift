@@ -1,0 +1,41 @@
+//
+//  ServiceRestartCommand.swift
+//  ForgeCLI
+//
+//  Created by JSilver on 8/9/26.
+//
+
+import ArgumentParser
+import Foundation
+import Forge
+
+struct ServiceRestartCommand: ParsableCommand {
+    // MARK: - Property
+    static let configuration = CommandConfiguration(
+        commandName: "restart",
+        abstract: "Stop and start a managed service.",
+        discussion: """
+            The restarted process picks up the current `[service.<name>]`
+            spec, so a restart after `forge service reload` applies config
+            changes.
+            """
+    )
+    
+    @OptionGroup var global: GlobalOptions
+    
+    @Argument(help: "Service name.")
+    var name: String
+    
+    @Flag(help: "Emit JSON.")
+    var json: Bool = false
+    
+    // MARK: - Initializer
+    // MARK: - Public
+    func run() throws {
+        let client = Client(global, context: "service restart")
+        
+        client.call("service.restart", ["name": .string(name)]).printResult(json: json)
+    }
+    
+    // MARK: - Private
+}

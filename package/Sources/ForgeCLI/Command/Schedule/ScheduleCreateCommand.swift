@@ -1,0 +1,127 @@
+//
+//  ScheduleCreateCommand.swift
+//  ForgeCLI
+//
+//  Created by JSilver on 8/9/26.
+//
+
+import ArgumentParser
+import Foundation
+import Forge
+
+struct ScheduleCreateCommand: ParsableCommand {
+    // MARK: - Property
+    static let configuration = CommandConfiguration(
+        commandName: "create",
+        abstract: "Create a schedule.",
+        discussion: """
+            Registers a schedule in state_directory/schedule.
+            Fires either a workflow at a path (`--workflow <path>`) or an
+            inline workflow (`--spec <json>`) on a trigger, exactly one of:
+
+                --every <dur>            repeat forever, every interval
+                --at <HH:mm> --timezone  repeat on a wall-clock (combine --days)
+                --once <ts> --timezone   fire once at 'yyyy-MM-dd HH:mm:ss'
+                --after <dur>            fire once, this much from now
+
+            `--once`/`--after` are one-shot fires, removed by the daemon once
+            fired. The target flags are mutually exclusive;
+            inline `spec` runs gated by the `<inline>` sigil, the same shape
+            as `workflow dispatch --spec`.
+
+            Creation is policy-gated: your principal must be allowed to
+            dispatch the target workflow directly (policy/*.yaml), or the
+            registration is refused.
+
+            Remove with `forge schedule delete <id>`.
+
+            Example values (`<path>`, channel IDs, JSON contents) are
+            placeholders; substitute your own.
+
+            EXAMPLE: a workflow at a path, repeating:
+                forge schedule create --workflow <path> \\
+                    --every 1h --inputs '{"channel":"<channel-id>"}'
+
+            EXAMPLE: inline spec, one-shot in 30 minutes:
+                forge schedule create --after 30m --spec '{
+                  "failing": ["nonzero_exit", "timeout"],
+                  "body": [{"value": {"call": {"procedure": "shell", "arguments": {"command": [
+                    "forge", "service", "send", "slack", "--payload",
+                    "{\\"kind\\":\\"slack.thread\\",\\"target\\":\\"<permalink>\\",\\"text\\":\\"<message>\\"}"
+                  ]}}}}]
+                }'
+            """
+    )
+    
+    @OptionGroup var global: GlobalOptions
+    
+    @Option(help: "The workflow's path, absolute or under the working directory. Omit when using --spec.")
+    var workflow: String?
+    
+    @Option(help: "Inline workflow JSON, one procedure; use instead of --workflow.")
+    var spec: String?
+    
+    @Option(help: "Repeat every interval (30s 5m 1h 2d).")
+    var every: String?
+    
+    @Option(help: "Repeat at wall-clock 'HH:mm' (24h). Requires --timezone; combine with --days.")
+    var at: String?
+    
+    @Option(help: "Weekdays for --at, comma-separated (mon,tue,wed,thu,fri,sat,sun). Omit for every day.")
+    var days: String?
+    
+    @Option(help: "Fire once at wall-clock 'yyyy-MM-dd HH:mm:ss'. Requires --timezone.")
+    var once: String?
+    
+    @Option(help: "Fire once, this much from now (30s 5m 1h 2d).")
+    var after: String?
+    
+    @Option(help: "IANA timezone (e.g. Asia/Seoul). Required with --at / --once; rejected otherwise.")
+    var timezone: String?
+    
+    @Option(help: "Schedule id (default: auto-generated).")
+    var id: String?
+    
+    @Option(help: "Workflow inputs as a JSON object.")
+    var inputs: String?
+    
+    @Option(help: "Concurrency policy: queue | skip | replace.")
+    var concurrency: String?
+    
+    @Flag(help: "Emit JSON.")
+    var json: Bool = false
+    
+    // MARK: - Initializer
+    // MARK: - Public
+    func run() throws {
+        let client = Client(global, context: "schedule create")
+        
+        var params: [String: JSONValue] = [:]
+        
+        if let every { params["every"] = .string(every) }
+        if let at { params["at"] = .string(at) }
+        if let once { params["once"] = .string(once) }
+        if let after { params["after"] = .string(after) }
+        if let timezone { params["timezone"] = .string(timezone) }
+        
+        if let days {
+            params["days"] = .array(
+                days
+                    .split(separator: ",")
+                    .map { day in day.trimmingCharacters(in: .whitespaces) }
+                    .filter { day in !day.isEmpty }
+                    .map(JSONValue.string)
+            )
+        }
+        
+        if let workflow { params["workflow"] = .string(workflow) }
+        if let spec { params["spec"] = JSONValue(objectArgument: spec, flag: "--spec") }
+        if let id { params["id"] = .string(id) }
+        if let inputs { params["inputs"] = JSONValue(objectArgument: inputs, flag: "--inputs") }
+        if let concurrency { params["concurrency"] = .string(concurrency) }
+        
+        client.call("schedule.create", params).printResult(json: json)
+    }
+    
+    // MARK: - Private
+}

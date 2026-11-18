@@ -1,0 +1,73 @@
+//
+//  RPC.swift
+//  ForgeCLI
+//
+//  Created by JSilver on 8/8/26.
+//
+
+import Foundation
+import Forge
+
+enum RPC {
+    // MARK: - Property
+    // MARK: - Initializer
+    // MARK: - Public
+    static func requestLine(
+        method: String,
+        params: [String: JSONValue],
+        idPrefix: String = "fc"
+    ) -> Data? {
+        let request: JSONValue = [
+            "id": .string("\(idPrefix)-\(UUID().uuidString.prefix(8))"),
+            "method": .string(method),
+            "params": .object(params)
+        ]
+        
+        return try? JSONSerialization.data(
+            withJSONObject: request.jsonObject,
+            options: [.withoutEscapingSlashes]
+        )
+    }
+    
+    static func parseFrame(_ frame: Data) -> RPCResult {
+        guard
+            let object = try? JSONSerialization.jsonObject(with: frame) as? [String: Any],
+            let response = try? JSONValue(jsonObject: object)
+        else {
+            return .err(type: "ClientError", message: "malformed daemon response")
+        }
+        
+        if let error = response["error"]?.objectValue {
+            return .err(
+                type: error["type"]?.stringValue ?? "RPCError",
+                message: error["message"]?.stringValue ?? "rpc error"
+            )
+        }
+        
+        return .ok(.object(response["result"]?.objectValue ?? [:]))
+    }
+    
+    static func call(socketPath: String, method: String, params: [String: JSONValue]) -> RPCResult {
+        guard let requestData = requestLine(method: method, params: params) else {
+            return .err(type: "ClientError", message: "encode request failed")
+        }
+        
+        guard let socket = StreamSocket(path: socketPath) else {
+            return .err(type: "ClientError", message: "connect failed (socket=\(socketPath))")
+        }
+        
+        defer { socket.close() }
+        
+        guard socket.writeLine(requestData) else {
+            return .err(type: "ClientError", message: "write failed")
+        }
+        
+        guard let frame = socket.readFrame() else {
+            return .err(type: "ClientError", message: "connection closed before response")
+        }
+        
+        return parseFrame(frame)
+    }
+    
+    // MARK: - Private
+}

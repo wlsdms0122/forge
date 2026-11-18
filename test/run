@@ -1,0 +1,292 @@
+#!/usr/bin/env python3
+# The release e2e gate. Boots a real daemon from the binary under test against
+# the in-repo instance home (stub agent, stub service, a few workflows), then walks
+# every user-facing feature shallowly, checking that each one answers.
+#
+# Usage, from the repository root (`open-package e2e` runs both):
+#   tool/build.sh
+#   test/run .build/forge
+import json
+import os
+import select
+import shutil
+import signal
+import subprocess
+import sys
+import tempfile
+import time
+
+KIT = os.path.dirname(os.path.abspath(__file__))
+failures = []
+
+
+def check(condition, label, detail=""):
+    mark = "ok" if condition else "FAIL"
+    print(f"  [{mark}] {label}")
+    if not condition:
+        failures.append(label)
+        if detail:
+            print(f"        {detail[:1200]}")
+
+
+class Harness:
+    def __init__(self, executable):
+        self.executable = os.path.abspath(executable)
+        self.root = tempfile.mkdtemp(prefix="forge-e2e-", dir="/tmp")
+        self.home = os.path.join(self.root, "forge", "e2e")
+        self.daemon = None
+        self.token = ""
+
+        shutil.copytree(os.path.join(KIT, "home"), self.home)
+        os.makedirs(os.path.join(self.home, "log"), exist_ok=True)
+
+        configuration = os.path.join(self.home, "config.toml")
+        with open(configuration) as handle:
+            text = handle.read()
+        with open(configuration, "w") as handle:
+            handle.write(text.replace("__AGENT_STUB__", os.path.join(KIT, "agent-stub")))
+        os.chmod(os.path.join(KIT, "agent-stub"), 0o755)
+
+    def environment(self, token=None):
+        environment = dict(os.environ)
+        environment["XDG_CONFIG_HOME"] = self.root
+        environment["FORGE_INSTANCE"] = "e2e"
+        environment.pop("FORGE_SOCKET", None)
+        environment["FORGE_ACCESS_TOKEN"] = token if token is not None else self.token
+        return environment
+
+    def boot(self):
+        token_path = os.path.join(self.home, "admin.token")
+        self.daemon_log = open(os.path.join(self.home, "log", "daemon.log"), "w")
+        self.daemon = subprocess.Popen(
+            ["/bin/sh", "-c", 'FORGE_BOOTSTRAP_FD=3 exec "$1" serve --instance e2e 3> "$2"',
+             "_", self.executable, token_path],
+            env=self.environment(token=""),
+            stdout=self.daemon_log,
+            stderr=self.daemon_log,
+        )
+        for _ in range(100):
+            if os.path.exists(token_path):
+                with open(token_path) as handle:
+                    self.token = handle.read().strip()
+                if self.token:
+                    return
+            time.sleep(0.1)
+        raise RuntimeError("daemon never published its bootstrap token")
+
+    def forge(self, *arguments, token=None, expect_success=True):
+        completed = subprocess.run(
+            [self.executable, *arguments],
+            env=self.environment(token=token),
+            capture_output=True,
+            text=True,
+        )
+        output = completed.stdout + completed.stderr
+        if expect_success and completed.returncode != 0:
+            raise RuntimeError(f"forge {' '.join(arguments)} → exit {completed.returncode}: {output}")
+        return output
+
+    def tear_down(self):
+        if self.daemon:
+            self.daemon.send_signal(signal.SIGTERM)
+            try:
+                self.daemon.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                self.daemon.kill()
+            self.daemon_log.close()
+        shutil.rmtree(self.root, ignore_errors=True)
+
+
+def stub_sessions(text):
+    sessions = []
+    for piece in text.split("stub[")[1:]:
+        head = piece.split("]", 1)[0]
+        if ":" in head:
+            sessions.append(head.split(":", 1)[1])
+    return sessions
+
+
+def main():
+    executable = sys.argv[1] if len(sys.argv) > 1 else os.environ.get("FORGE_E2E_EXECUTABLE", "")
+    if not executable:
+        print("usage: test/run <path-to-forge-binary>")
+        return 2
+
+    harness = Harness(executable)
+    try:
+        harness.boot()
+        print(f"e2e instance up at {harness.home}")
+
+        # The binary knows its own version, and the daemon reports the same one.
+        version = harness.forge("--version").strip()
+        check(version and version[0].isdigit(), "--version answers a version number", version)
+
+        # Status speaks the current config vocabulary.
+        status = harness.forge("status")
+        check("working_directory" in status, "status speaks the config vocabulary", status)
+        check(version in status, "status reports the daemon's version", status)
+
+        # Every fixture reads at its path under the working directory.
+        for name in ["kernel.yaml", "child.yaml", "host.yaml", "converse.yaml", "parent.yaml", "forbidden.yaml"]:
+            read = harness.forge("workflow", "describe", name, expect_success=False)
+            check(read.startswith(name), f"workflow describe reads '{name}'", read)
+
+        # The authoring gate reads files straight from the kit, each alone.
+        checked = harness.forge(
+            "workflow", "check",
+            os.path.join(KIT, "home/document/kernel.yaml"),
+            os.path.join(KIT, "home/document/child.yaml"),
+        )
+        check("kernel.yaml" in checked, "workflow check accepts the kernel fixture", checked)
+
+        described = harness.forge("workflow", "describe", "kernel.yaml")
+        check("who" in described, "workflow describe shows the signature", described)
+        check("whom the tour greets" in described, "workflow describe shows an input's hint", described)
+        check("Kernel language tour" in described, "workflow describe shows the description", described)
+
+        # Kernel tour: every control-flow feature in one dispatch.
+        kernel = harness.forge("workflow", "dispatch", "kernel.yaml")
+        for expected in ["hello, world", "took-a", "0:one", "1:two",
+                         "rescued", "helper:from-use", "kept-as-data"]:
+            check(expected in kernel, f"kernel run yields '{expected}'", kernel)
+
+        # An absolute path names its file as written, outside the working
+        # directory too.
+        outside = os.path.join(harness.root, "outside")
+        os.makedirs(outside)
+        shutil.copy(os.path.join(harness.home, "document", "kernel.yaml"), outside)
+        absolute = harness.forge("workflow", "dispatch", os.path.join(outside, "kernel.yaml"))
+        check("hello, world" in absolute, "a workflow outside the working directory runs", absolute)
+
+        # Host seams: shell output, resource rendering and locating, and the
+        # failure-as-value catch contract.
+        host = harness.forge("workflow", "dispatch", "host.yaml")
+        check("shell:e2e" in host, "shell step answers", host)
+        check("hello, e2e — from a resource file" in host, "resource content renders", host)
+        check("stamp:e2e" in host, "a located resource script runs", host)
+        check("rescued(7): warned" in host, "a catch reads the failure payload", host)
+
+        # Agent seams: the stub reports turn mode and session id, so continuity
+        # and share_session inheritance are visible from the outside.
+        agent = harness.forge("workflow", "dispatch", "converse.yaml")
+        sessions = stub_sessions(agent)
+        check("stub[new:" in agent, "first agent turn opens a session", agent)
+        check(len(sessions) == 3, "three agent turns answered", agent)
+        check(len(set(sessions)) == 1, "all turns share one session", str(sessions))
+        check(agent.count("stub[resume:") == 2,
+              "later turns resume instead of reopening", agent)
+
+        # Cross-run dispatch through the policy gate.
+        parent = harness.forge("workflow", "dispatch", "parent.yaml")
+        check("child:from-dispatch" in parent, "dispatch chain reaches the child", parent)
+
+        # Policy denial fails the run and is not swallowed by catch.
+        denied = harness.forge("workflow", "dispatch", "forbidden.yaml")
+        check("status: failed" in denied, "denied dispatch fails the run", denied)
+        check("PolicyDenied" in denied, "denial names the policy gate", denied)
+        check("should-not-swallow" not in denied, "catch does not swallow the denial", denied)
+
+        # Policy and resource surfaces.
+        policy = harness.forge("policy", "list")
+        check("cli:parent" in policy, "policy list shows principals", policy)
+        resource = harness.forge("resource", "read", "greeting.txt")
+        check("${name}" in resource, "resource read returns the raw template", resource)
+        outside_read = harness.forge("resource", "read", os.path.join(outside, "kernel.yaml"),
+                                     expect_success=False)
+        check("is absolute" in outside_read, "resource read stays inside the working directory",
+              outside_read)
+
+        # Jobs: create, read, annotate, delete.
+        created = harness.forge("job", "create", "--id", "j-e2e",
+                                "--title", "release gate", "--brief", "smoke")
+        check("j-e2e" in created, "job create answers with the id", created)
+        harness.forge("job", "update", "j-e2e", "--note", "touched by e2e")
+        shown = harness.forge("job", "show", "j-e2e")
+        check("touched by e2e" in shown, "job show carries the comment", shown)
+        jobs = harness.forge("job", "list")
+        check("j-e2e" in jobs, "job list carries the ticket", jobs)
+        harness.forge("job", "delete", "j-e2e")
+
+        # Schedules: create one far in the future, toggle it, delete it. Nothing fires.
+        scheduled = harness.forge("schedule", "create", "--workflow", "kernel.yaml",
+                                  "--id", "e2e-once", "--once", "2039-01-01 00:00:00",
+                                  "--timezone", "Asia/Seoul")
+        schedule_id = next((word for word in scheduled.split() if word.endswith("e2e-once")),
+                           "e2e-once")
+        schedules = harness.forge("schedule", "list")
+        check(schedule_id in schedules, "schedule list carries the entry", schedules)
+        harness.forge("schedule", "disable", schedule_id)
+        harness.forge("schedule", "delete", schedule_id)
+        check(True, "schedule toggles and deletes")
+
+        # Tokens: an issued principal can speak.
+        issued = harness.forge("token", "issue", "admin:e2e")
+        token = issued.split()[-1] if issued.split() else ""
+        check(bool(token), "token issue answers", issued)
+        as_issued = harness.forge("workflow", "describe", "kernel.yaml", token=token)
+        check("kernel.yaml" in as_issued, "an issued token can speak", as_issued)
+
+        # Managed service: the supervisor spawned the heartbeat stub.
+        check("heartbeat=running" in harness.forge("status"),
+              "the supervisor runs the heartbeat service")
+
+        # External service: a registered co-process answers what is sent to it.
+        echo = subprocess.Popen(
+            [harness.executable, "service", "register", "e2e-echo"],
+            env=harness.environment(),
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            text=True,
+        )
+        try:
+            services = ""
+            for _ in range(50):
+                services = harness.forge("service", "list")
+                if "e2e-echo" in services:
+                    break
+                time.sleep(0.1)
+            check("e2e-echo" in services, "service list carries a registered service", services)
+            sent = subprocess.Popen(
+                [harness.executable, "service", "send", "e2e-echo", "--payload", '{"text":"hi"}'],
+                env=harness.environment(),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+            readable, _, _ = select.select([echo.stdout], [], [], 10)
+            frame = json.loads(echo.stdout.readline()) if readable else {}
+            if frame:
+                echo.stdin.write(json.dumps({
+                    "message_id": frame["message_id"],
+                    "result": {"echo": frame["payload"]["text"]},
+                }) + "\n")
+                echo.stdin.flush()
+            answer = sent.communicate(timeout=10)[0]
+            check(frame.get("kind") == "service.message", "a registered service receives a message",
+                  json.dumps(frame))
+            check("echo" in answer and "hi" in answer, "service send answers the service's ack",
+                  answer)
+        finally:
+            echo.stdin.close()
+            echo.wait(timeout=10)
+
+        # Health and quiescence.
+        health = harness.forge("workflow", "health")
+        check(("slots" in health) or ("runs" in health), "workflow health answers", health)
+        active = harness.forge("workflow", "active")
+        check("running" not in active, "no run left behind", active)
+    finally:
+        harness.tear_down()
+
+    if failures:
+        print(f"\ne2e FAILED: {len(failures)} check(s):")
+        for label in failures:
+            print(f"  - {label}")
+        return 1
+
+    print("\ne2e passed")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
