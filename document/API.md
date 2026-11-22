@@ -98,6 +98,7 @@ its kind does not read skips the provider as a missing one does.
 | `[pool]` `maximum_active_runs` | `256` | concurrent registered-run cap |
 | `[session]` `context_limit` | `250000` | the conversation size, in tokens, past which a session is compacted before its next turn |
 | `[session]` `cold_compact_floor` | `80000` | the size past which a session is compacted before its next turn once the backend's cache of it has expired |
+| `[session]` `retention_days` | `7` | how long a session no `invoke` uses is kept; the daemon drops older ones as it starts and every hour, logging `session.expired`, and a dropped name starts a new conversation |
 | `[provider.<name>]` `kind` (+ settings) | one `claude` (claude-cli) | backend instances. `kind` = `claude-cli` \| `codex-cli` \| `openai-compat`. CLI kinds accept `executable` (default: the CLI's name on `PATH`); `openai-compat` requires `endpoint`, the base URL, and an Agent reference without a model leaves the choice to the endpoint. A provider without a known `kind` or a required setting, or with a setting its kind does not read, is skipped with a warning on stderr. Declaring any drops the built-in claude default, so list it explicitly alongside others. API keys via `FORGE_PROVIDER_<NAME>_API_KEY` env only. |
 | `[service.<name>]` `command` (+ `working_directory`/`environment`/`auto_spawn`/`log_file`/`restart_backoff_initial_milliseconds`/`restart_backoff_maximum_milliseconds`/`restart_crash_loop_limit`) | no service; for a declared one: `auto_spawn` `true`, `log_file` `<instanceHome>/state/services/<name>.log`, `restart_backoff_initial_milliseconds` `1000`, `restart_backoff_maximum_milliseconds` `30000`, `restart_crash_loop_limit` `5` | a managed child process forge spawns and supervises. `command` is its argv; a relative `command[0]` that contains `/` resolves against the toml's directory. A block without `command` is skipped with a warning on stderr. See CONFIG SCHEMA in `forge serve --help` |
 | `[hooks]` `logging` | `true` | log each agent invocation (request, response, error) to the forge log |
@@ -120,7 +121,7 @@ effective config + every key's source (`toml`/`env`/`default`).
 | `FORGE_WORKING_DIRECTORY` / `FORGE_POLICY_DIRECTORY` | `serve`: `[directory]` `working` / `policy` where the file leaves it unset |
 | `FORGE_LOG_JSONL` / `FORGE_ERROR_LOG` / `FORGE_LOG_MAXIMUM_BYTES` | `serve`: `[log]` `jsonl` / `error` / `maximum_bytes` where the file leaves it unset |
 | `FORGE_POOL_MAXIMUM_CONCURRENT_STEPS` / `FORGE_POOL_MAXIMUM_ACTIVE_RUNS` | `serve`: `[pool]` `maximum_concurrent_steps` / `maximum_active_runs` where the file leaves it unset or not positive |
-| `FORGE_SESSION_CONTEXT_LIMIT` / `FORGE_SESSION_COLD_COMPACT_FLOOR` | `serve`: `[session]` `context_limit` / `cold_compact_floor` where the file leaves it unset or not positive |
+| `FORGE_SESSION_CONTEXT_LIMIT` / `FORGE_SESSION_COLD_COMPACT_FLOOR` / `FORGE_SESSION_RETENTION_DAYS` | `serve`: `[session]` `context_limit` / `cold_compact_floor` / `retention_days` where the file leaves it unset or not positive |
 
 ### Global options
 
