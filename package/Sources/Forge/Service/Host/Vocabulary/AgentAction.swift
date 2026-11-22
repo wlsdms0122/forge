@@ -34,9 +34,7 @@ struct AgentAction: ForgeAction {
     func act(_ invocation: Invocation<Self>, in environment: ForgeEnvironment) async throws -> Warp.Value {
         let prompt = ValueBridge.text(invocation[.prompt])
 
-        return try await environment.withStepSlot {
-            .string(try await environment.capabilities.agent.send(prompt: prompt))
-        }
+        return .string(try await environment.capabilities.agent.send(prompt: prompt, slots: environment))
     }
 
     // MARK: - Private

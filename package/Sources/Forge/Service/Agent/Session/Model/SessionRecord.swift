@@ -22,6 +22,7 @@ struct SessionRecord: Sendable, Equatable, Codable {
         case contextTokens = "context_tokens"
         case compact
         case compactions
+        case needsSetup = "needs_setup"
     }
     
     // MARK: - Property
@@ -39,6 +40,8 @@ struct SessionRecord: Sendable, Equatable, Codable {
     let compact: Bool
     // How many times the daemon has compacted the conversation.
     var compactions: Int
+    // Whether the conversation holds no context a setup built.
+    var needsSetup: Bool
     
     // MARK: - Initializer
     init(
@@ -52,7 +55,8 @@ struct SessionRecord: Sendable, Equatable, Codable {
         turns: Int,
         contextTokens: Int? = nil,
         compact: Bool,
-        compactions: Int = 0
+        compactions: Int = 0,
+        needsSetup: Bool = true
     ) {
         self.provider = provider
         self.handle = handle
@@ -65,6 +69,7 @@ struct SessionRecord: Sendable, Equatable, Codable {
         self.contextTokens = contextTokens
         self.compact = compact
         self.compactions = compactions
+        self.needsSetup = needsSetup
     }
     
     // MARK: - Public

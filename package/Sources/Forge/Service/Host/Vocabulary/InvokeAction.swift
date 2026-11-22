@@ -21,6 +21,7 @@ struct InvokeAction: ForgeAction {
         case permissionMode
         case shareSession
         case session
+        case setup
         case compact
         case timeout
         case body
@@ -48,6 +49,12 @@ struct InvokeAction: ForgeAction {
 
             case .session:
                 Parameter(name: "session", type: .optional(.string))
+
+            case .setup:
+                Parameter(
+                    name: "setup",
+                    type: .optional(.procedure(ProcedureType(returns: .null, failing: .anything)))
+                )
 
             case .compact:
                 Parameter(name: "compact", type: .bool)
@@ -99,8 +106,16 @@ struct InvokeAction: ForgeAction {
             throw RunRefused("invoke: session and share_session: true cannot be given together")
         }
 
+        let setup: (@Sendable () async throws -> Void)?
+
+        if case let .procedure(procedure) = invocation[.setup] {
+            setup = { _ = try await invocation.call(procedure) }
+        } else {
+            setup = nil
+        }
+
         return try await Deadline(seconds: ValueBridge.number(invocation[.timeout])).run {
-            try await environment.capabilities.agent.withSession(settings) {
+            try await environment.capabilities.agent.withSession(settings, setup: setup) {
                 try await invocation.call(body)
             }
         }

@@ -39,6 +39,7 @@
   (parameter permission_mode (type (optional String)))
   (parameter share_session (type Bool))
   (parameter session (type (optional String)))
+  (parameter setup (type (optional (procedure (parameters) (failing (anything)) (returns Null)))))
   (parameter compact (type Bool))
   (parameter timeout (type (optional Double)))
   (parameter body (type (procedure (parameters) (failing (anything)) (returns (some Result)))))
