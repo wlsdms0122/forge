@@ -1,0 +1,15 @@
+# A named session: one agent turn in the session `e2e/kept`, which stays
+# after the run.
+uses: [Forge]
+procedures:
+  main:
+    access: public
+    returns: String
+    failing: anything
+    result:
+      call:
+        procedure: invoke
+        arguments:
+          model: claude
+          session: e2e/kept
+          body: { closure: { returns: String, result: { call: { procedure: agent, arguments: { prompt: remember } } } } }
