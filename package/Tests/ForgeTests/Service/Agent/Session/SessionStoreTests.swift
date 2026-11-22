@@ -184,7 +184,8 @@ struct SessionStoreTests {
             permissionMode: "safe",
             createdAt: "2026-11-22T09:00:00Z",
             usedAt: "2026-11-22T09:05:00Z",
-            turns: turns
+            turns: turns,
+            compact: true
         )
     }
 }

@@ -18,11 +18,17 @@ struct LiveAgent: AgentServing {
 
     let executor: AgentExecutor
     let sessions: SessionStore
+    let limits: ForgeConfig.SessionConfig
 
     // MARK: - Initializer
-    init(executor: AgentExecutor, sessions: SessionStore) {
+    init(
+        executor: AgentExecutor,
+        sessions: SessionStore,
+        limits: ForgeConfig.SessionConfig = ForgeConfig.SessionConfig()
+    ) {
         self.executor = executor
         self.sessions = sessions
+        self.limits = limits
     }
 
     // MARK: - Public
@@ -86,6 +92,7 @@ struct LiveAgent: AgentServing {
             let result: AgentInvocationResult
 
             do {
+                try await compactIfDue(session)
                 result = try await turn(prompt, in: session)
             } catch let lost as BackendSessionLost {
                 // Only a kept session's first turn can find the conversation
@@ -99,7 +106,10 @@ struct LiveAgent: AgentServing {
                 result = try await turn(prompt, in: session)
             }
 
-            try await keep(session, after: result)
+            session.contextTokens = result.contextTokens ?? session.contextTokens
+            session.usedAt = Date()
+
+            try await keep(session) { record in record.turns += 1 }
 
             return result.text
         }
@@ -174,6 +184,7 @@ struct LiveAgent: AgentServing {
         return AgentSession(
             agent: agent,
             backend: backend,
+            compacts: settings.compact,
             handle: backend.openSession(),
             keeping: .none
         )
@@ -195,7 +206,8 @@ struct LiveAgent: AgentServing {
                     permissionMode: settings.permissionMode,
                     createdAt: now,
                     usedAt: now,
-                    turns: 0
+                    turns: 0,
+                    compact: settings.compact
                 ),
                 name: name,
                 isConfirmed: true
@@ -217,8 +229,11 @@ struct LiveAgent: AgentServing {
         return AgentSession(
             agent: agent,
             backend: backend,
+            compacts: record.compact,
             handle: try backend.session(from: record.handle),
-            keeping: .record(record, name: name, isConfirmed: false)
+            keeping: .record(record, name: name, isConfirmed: false),
+            contextTokens: record.contextTokens,
+            usedAt: ISO8601.parse(record.usedAt)
         )
     }
 
@@ -248,6 +263,8 @@ struct LiveAgent: AgentServing {
         from record: SessionRecord
     ) async throws {
         session.handle = session.backend.openSession()
+        session.contextTokens = nil
+        session.usedAt = nil
         session.keeping = .record(
             record.restarted(
                 handle: try session.backend.record(of: session.handle),
@@ -264,15 +281,57 @@ struct LiveAgent: AgentServing {
         )
     }
 
-    // The record follows each turn, so a daemon that stops mid-invoke leaves
+    // A turn into a conversation past the daemon's sizes compacts it first.
+    private func compactIfDue(_ session: AgentSession) async throws {
+        guard session.compacts, let reason = compactionReason(for: session) else { return }
+
+        let size = session.contextTokens
+        let started = ContinuousClock.now
+
+        try await session.backend.compact(session.handle, agent: session.agent)
+
+        // What is left is known when the next turn measures it.
+        session.contextTokens = nil
+
+        try await keep(session) { record in record.compactions += 1 }
+
+        var payload: [String: Any] = [
+            "reason": reason.rawValue,
+            "duration_ms": (ContinuousClock.now - started).milliseconds
+        ]
+
+        if let size { payload["context_tokens"] = size }
+        if let name = session.name { payload["session"] = name.rawValue }
+
+        await Log.shared.append("session.compacted", LogPayload(payload), category: Self.category)
+    }
+
+    private func compactionReason(for session: AgentSession) -> CompactionReason? {
+        guard let size = session.contextTokens else { return nil }
+
+        if size > limits.contextLimit { return .limit }
+
+        guard
+            size > limits.coldCompactFloor,
+            let lifetime = session.backend.cacheLifetime,
+            let usedAt = session.usedAt,
+            Date().timeIntervalSince(usedAt) > Double(lifetime.components.seconds)
+        else {
+            return nil
+        }
+
+        return .cold
+    }
+
+    // The record follows the session, so a daemon that stops mid-invoke leaves
     // the session where its last finished turn left it.
-    private func keep(_ session: AgentSession, after result: AgentInvocationResult) async throws {
+    private func keep(_ session: AgentSession, change: (inout SessionRecord) -> Void) async throws {
         guard case .record(var record, let name, _) = session.keeping else { return }
 
         record.handle = try session.backend.record(of: session.handle)
-        record.usedAt = ISO8601.string(Date())
-        record.turns += 1
-        record.contextTokens = result.contextTokens ?? record.contextTokens
+        record.usedAt = session.usedAt.map(ISO8601.string) ?? record.usedAt
+        record.contextTokens = session.contextTokens
+        change(&record)
         session.keeping = .record(record, name: name, isConfirmed: true)
 
         try await sessions.write(record, for: name)

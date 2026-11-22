@@ -21,9 +21,15 @@ final class AgentSession: @unchecked Sendable {
 
     let agent: Agent
     let backend: any Backend
+    // Whether the session is compacted as it grows past the daemon's sizes.
+    let compacts: Bool
 
     var handle: any BackendSession
     var keeping: SessionKeeping
+    // The conversation's size as its last turn ended; nil until a turn reports one.
+    var contextTokens: Int?
+    // When the session's last turn ended; nil before its first.
+    var usedAt: Date?
 
     // The name of a kept session; nil for one that ends with its invoke.
     var name: SessionName? {
@@ -36,13 +42,19 @@ final class AgentSession: @unchecked Sendable {
     init(
         agent: Agent,
         backend: any Backend,
+        compacts: Bool,
         handle: any BackendSession,
-        keeping: SessionKeeping
+        keeping: SessionKeeping,
+        contextTokens: Int? = nil,
+        usedAt: Date? = nil
     ) {
         self.agent = agent
         self.backend = backend
+        self.compacts = compacts
         self.handle = handle
         self.keeping = keeping
+        self.contextTokens = contextTokens
+        self.usedAt = usedAt
     }
 
     // MARK: - Public

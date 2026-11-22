@@ -114,7 +114,7 @@ package actor Server {
             jobStore: jobStoreLocal,
             capabilities: CapabilitySet(
                 shell: LiveShell(),
-                agent: LiveAgent(executor: executor, sessions: sessionStore),
+                agent: LiveAgent(executor: executor, sessions: sessionStore, limits: config.session),
                 resources: LiveResources(workingDirectory: workingDirectory)
             )
         )

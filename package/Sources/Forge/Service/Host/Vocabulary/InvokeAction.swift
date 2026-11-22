@@ -21,6 +21,7 @@ struct InvokeAction: ForgeAction {
         case permissionMode
         case shareSession
         case session
+        case compact
         case timeout
         case body
 
@@ -47,6 +48,9 @@ struct InvokeAction: ForgeAction {
 
             case .session:
                 Parameter(name: "session", type: .optional(.string))
+
+            case .compact:
+                Parameter(name: "compact", type: .bool)
 
             case .timeout:
                 Parameter(name: "timeout", type: .optional(.double))
@@ -86,7 +90,8 @@ struct InvokeAction: ForgeAction {
             permissionMode: try Self.nonEmpty(invocation.string(.permissionMode), field: "permission_mode"),
             envExtra: try ValueBridge.strings(invocation[.envExtra]),
             shareSession: invocation[.shareSession] == .bool(true),
-            session: try Self.nonEmpty(invocation.string(.session), field: "session").map(SessionName.init)
+            session: try Self.nonEmpty(invocation.string(.session), field: "session").map(SessionName.init),
+            compact: invocation[.compact] == .bool(true)
         )
 
         // Both say which session the body speaks through, so they cannot both stand.
