@@ -935,14 +935,16 @@ ticket and unlinks it from its parent's children.
 
 ```json
 {"sessions":[{"name","provider","handle","model"?,"allowed"?,"permission_mode"?,
-              "created_at","used_at","turns","held","waiting"}]}
+              "created_at","used_at","turns","context_tokens"?,"held","waiting"}]}
 ```
 
 Sorted by name; a name is in lowercase, whatever case the `invoke` spelled it in. `handle` is what the backend wrote to find the conversation
 again (`claude`: `{"session_id","turn_index"}`). `model`, `allowed` and
 `permission_mode` are the session's settings as its first `invoke` gave them,
 absent where it gave none. `turns` counts the turns finished since the
-conversation started. `held` is whether an `invoke` holds the session now, and
+conversation started. `context_tokens` is the conversation's size as its last
+turn ended (what that turn's last request carried in, cached or not), absent
+until a turn reports one. `held` is whether an `invoke` holds the session now, and
 `waiting` how many wait behind it.
 
 A record that does not read is left out of the list; `session.show` says why.
