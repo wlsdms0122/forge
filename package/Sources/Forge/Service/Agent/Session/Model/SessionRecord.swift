@@ -19,6 +19,7 @@ struct SessionRecord: Sendable, Equatable, Codable {
         case createdAt = "created_at"
         case usedAt = "used_at"
         case turns
+        case contextTokens = "context_tokens"
     }
     
     // MARK: - Property
@@ -30,6 +31,8 @@ struct SessionRecord: Sendable, Equatable, Codable {
     let createdAt: String
     var usedAt: String
     var turns: Int
+    // The conversation's size as its last turn ended; nil until a turn reports one.
+    var contextTokens: Int?
     
     // MARK: - Initializer
     init(
@@ -40,7 +43,8 @@ struct SessionRecord: Sendable, Equatable, Codable {
         permissionMode: String?,
         createdAt: String,
         usedAt: String,
-        turns: Int
+        turns: Int,
+        contextTokens: Int? = nil
     ) {
         self.provider = provider
         self.handle = handle
@@ -50,6 +54,7 @@ struct SessionRecord: Sendable, Equatable, Codable {
         self.createdAt = createdAt
         self.usedAt = usedAt
         self.turns = turns
+        self.contextTokens = contextTokens
     }
     
     // MARK: - Public

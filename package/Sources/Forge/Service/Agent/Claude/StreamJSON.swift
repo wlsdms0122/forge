@@ -19,6 +19,8 @@ enum StreamJSON {
         private var byID: [String: Int] = [:]
         private var malformedLineCount = 0
         private var sawTerminalResult = false
+        private var contextTokens: Int?
+        private var sawCompaction = false
         
         // MARK: - Initializer
         init() {
@@ -73,10 +75,20 @@ enum StreamJSON {
                     )
                 }
             
+            case "system":
+                if object["subtype"] as? String == "compact_boundary" { sawCompaction = true }
+            
             case "assistant":
                 let message = object["message"] as? [String: Any] ?? [:]
                 let content = message["content"] as? [[String: Any]] ?? []
                 var turnText = ""
+                
+                // Each request reads the whole conversation in, cached or not.
+                if let usage = message["usage"] as? [String: Any] {
+                    contextTokens = (usage["input_tokens"] as? Int ?? 0)
+                        + (usage["cache_creation_input_tokens"] as? Int ?? 0)
+                        + (usage["cache_read_input_tokens"] as? Int ?? 0)
+                }
                 
                 for block in content {
                     let blockType = block["type"] as? String
@@ -167,7 +179,9 @@ enum StreamJSON {
                 toolEvents: toolEvents,
                 usage: usage,
                 malformedLineCount: malformedLineCount,
-                sawTerminalResult: sawTerminalResult
+                sawTerminalResult: sawTerminalResult,
+                contextTokens: contextTokens,
+                sawCompaction: sawCompaction
             )
         }
         
@@ -199,7 +213,9 @@ enum StreamJSON {
             toolEvents: cleared,
             usage: snapshot.usage,
             malformedLineCount: snapshot.malformedLineCount,
-            sawTerminalResult: snapshot.sawTerminalResult
+            sawTerminalResult: snapshot.sawTerminalResult,
+            contextTokens: snapshot.contextTokens,
+            sawCompaction: snapshot.sawCompaction
         )
     }
     

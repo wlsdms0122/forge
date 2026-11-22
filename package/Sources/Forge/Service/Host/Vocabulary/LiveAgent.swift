@@ -83,10 +83,10 @@ struct LiveAgent: AgentServing {
         }
 
         return try await LogContext.childNode {
-            let text: String
+            let result: AgentInvocationResult
 
             do {
-                text = try await turn(prompt, in: session)
+                result = try await turn(prompt, in: session)
             } catch let lost as BackendSessionLost {
                 // Only a kept session's first turn can find the conversation
                 // gone and start over; later, the body has turns in it that a
@@ -96,12 +96,12 @@ struct LiveAgent: AgentServing {
                 }
 
                 try await renew(session, named: name, from: record)
-                text = try await turn(prompt, in: session)
+                result = try await turn(prompt, in: session)
             }
 
-            try await keep(session)
+            try await keep(session, after: result)
 
-            return text
+            return result.text
         }
     }
 
@@ -222,7 +222,7 @@ struct LiveAgent: AgentServing {
         )
     }
 
-    private func turn(_ prompt: String, in session: AgentSession) async throws -> String {
+    private func turn(_ prompt: String, in session: AgentSession) async throws -> AgentInvocationResult {
         let invocation = AgentInvocation(
             id: UUID().uuidString,
             agent: session.agent,
@@ -230,7 +230,15 @@ struct LiveAgent: AgentServing {
             session: session.handle
         )
 
-        return try await executor.run(invocation).text
+        guard let name = session.name else { return try await executor.run(invocation) }
+
+        // The turn's log entries say which kept session they belong to.
+        var metadata = LogContext.metadata?.dict ?? [:]
+        metadata["session"] = name.rawValue
+
+        return try await LogContext.$metadata.withValue(LogPayload(metadata)) {
+            try await executor.run(invocation)
+        }
     }
 
     // The backend lost the conversation, so the name starts a new one.
@@ -258,12 +266,13 @@ struct LiveAgent: AgentServing {
 
     // The record follows each turn, so a daemon that stops mid-invoke leaves
     // the session where its last finished turn left it.
-    private func keep(_ session: AgentSession) async throws {
+    private func keep(_ session: AgentSession, after result: AgentInvocationResult) async throws {
         guard case .record(var record, let name, _) = session.keeping else { return }
 
         record.handle = try session.backend.record(of: session.handle)
         record.usedAt = ISO8601.string(Date())
         record.turns += 1
+        record.contextTokens = result.contextTokens ?? record.contextTokens
         session.keeping = .record(record, name: name, isConfirmed: true)
 
         try await sessions.write(record, for: name)

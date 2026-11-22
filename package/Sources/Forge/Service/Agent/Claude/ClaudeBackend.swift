@@ -187,7 +187,9 @@ struct ClaudeBackend: Backend {
             usage: (usage?.isEmpty ?? true) ? nil : usage,
             toolEvents: toolEvents,
             stdoutLength: result.stdout.count,
-            durationMs: durationMs
+            durationMs: durationMs,
+            contextTokens: parsed.contextTokens,
+            isCompacted: parsed.sawCompaction
         )
     }
     
