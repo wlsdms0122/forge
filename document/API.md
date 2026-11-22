@@ -939,7 +939,7 @@ ticket and unlinks it from its parent's children.
 ```json
 {"sessions":[{"name","provider","handle","model"?,"allowed"?,"permission_mode"?,
               "created_at","used_at","turns","context_tokens"?,"compact","compactions",
-              "held","waiting"}]}
+              "needs_setup","held","waiting"}]}
 ```
 
 Sorted by name; a name is in lowercase, whatever case the `invoke` spelled it in. `handle` is what the backend wrote to find the conversation
@@ -950,7 +950,9 @@ conversation started. `context_tokens` is the conversation's size as its last
 turn ended (what that turn's last request carried in, cached or not), absent
 until a turn reports one and again after a compaction until the next turn
 measures it. `compact` is whether the daemon compacts the session as it grows,
-and `compactions` how many times it has. `held` is whether an `invoke` holds the session now, and
+and `compactions` how many times it has. `needs_setup` is whether the
+conversation holds no context an `invoke`'s `setup` built: it is new or was
+compacted since one ran. `held` is whether an `invoke` holds the session now, and
 `waiting` how many wait behind it.
 
 A record that does not read is left out of the list; `session.show` says why.
