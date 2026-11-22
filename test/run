@@ -316,6 +316,17 @@ def main():
               "a session past the context limit is compacted before its next turn", regrown + shown)
         harness.forge("session", "delete", "e2e/grown")
 
+        # Setup: a session is set up before its first turn, and a later run
+        # that finds it set up sends only its own turn.
+        harness.forge("workflow", "dispatch", "boot.yaml")
+        shown = harness.forge("session", "show", "e2e/booted", "--json").replace(" ", "")
+        check('"turns":2' in shown and '"needs_setup":false' in shown,
+              "a new session is set up before its first turn", shown)
+        harness.forge("workflow", "dispatch", "boot.yaml")
+        shown = harness.forge("session", "show", "e2e/booted", "--json").replace(" ", "")
+        check('"turns":3' in shown, "a session that was set up is not set up again", shown)
+        harness.forge("session", "delete", "e2e/booted")
+
         # Health and quiescence.
         health = harness.forge("workflow", "health")
         check(("slots" in health) or ("runs" in health), "workflow health answers", health)
