@@ -16,6 +16,7 @@ struct AgentSessionSettings: Sendable {
     let permissionMode: String?
     let envExtra: [String: String]
     let shareSession: Bool
+    let session: SessionName?
 
     // MARK: - Initializer
     init(
@@ -24,7 +25,8 @@ struct AgentSessionSettings: Sendable {
         cwd: String? = nil,
         permissionMode: String? = nil,
         envExtra: [String: String] = [:],
-        shareSession: Bool = false
+        shareSession: Bool = false,
+        session: SessionName? = nil
     ) {
         self.model = model
         self.allowed = allowed
@@ -32,6 +34,7 @@ struct AgentSessionSettings: Sendable {
         self.permissionMode = permissionMode
         self.envExtra = envExtra
         self.shareSession = shareSession
+        self.session = session
     }
 
     // MARK: - Public

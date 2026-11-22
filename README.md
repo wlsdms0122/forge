@@ -118,7 +118,7 @@ own fields (a shell failure: `exit_code`, `stderr`, `stdout`).
 Each named instance (`--instance dev`) is its own daemon with its own home,
 `<XDG_CONFIG_HOME | ~/.config>/forge/<instance>`: the socket, `config.toml`,
 policy, logs, and the state that outlives a restart (jobs, schedules,
-service records). Workflows and the files they read live in the instance's
+named agent sessions, service records). Workflows and the files they read live in the instance's
 working directory, `<home>/document` unless the config names another.
 
 ### Agent session
@@ -126,6 +126,11 @@ working directory, `<home>/document` unless the config names another.
 `invoke` opens one LLM session around a body, and each `agent` call in it is
 one turn, so a validate-and-retry loop *continues the same dialogue* instead
 of starting over, and the model remembers what it already produced.
+
+Given a `session` name, the dialogue outlives the `invoke`: the next one
+with the same name continues it, from this run or another, and across a
+daemon restart. Invokes of one name take turns, so parallel runs can share
+a reviewer or a chat thread without talking over each other.
 
 ## Philosophy
 

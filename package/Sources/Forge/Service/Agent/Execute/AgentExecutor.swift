@@ -28,12 +28,6 @@ struct AgentExecutor: Sendable {
     }
     
     // MARK: - Public
-    func openSession(provider: String?) throws -> any BackendSession {
-        let backend = try backends.resolve(provider: provider)
-        
-        return backend.openSession()
-    }
-    
     func run(_ original: AgentInvocation) async throws -> AgentInvocationResult {
         let started = ContinuousClock.now
         var invocation = original

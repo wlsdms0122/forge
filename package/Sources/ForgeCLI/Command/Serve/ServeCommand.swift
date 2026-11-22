@@ -78,8 +78,9 @@ struct ServeCommand: AsyncParsableCommand {
                                                down/crashed-daemon diagnostic
                                                (clients discover via instance, not this).
                 <state_directory>/             what outlives a restart: jobs,
-                                               schedules, service pid files and
-                                               logs, the fire and enabled ledgers.
+                                               schedules, named agent sessions,
+                                               service pid files and logs, the
+                                               fire and enabled ledgers.
                 <log_jsonl>                    structured JSONL event log.
                 <error_log>                    stderr / traceback log.
 

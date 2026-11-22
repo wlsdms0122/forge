@@ -20,6 +20,7 @@ struct InvokeAction: ForgeAction {
         case cwd
         case permissionMode
         case shareSession
+        case session
         case timeout
         case body
 
@@ -43,6 +44,9 @@ struct InvokeAction: ForgeAction {
 
             case .shareSession:
                 Parameter(name: "share_session", type: .bool)
+
+            case .session:
+                Parameter(name: "session", type: .optional(.string))
 
             case .timeout:
                 Parameter(name: "timeout", type: .optional(.double))
@@ -81,8 +85,14 @@ struct InvokeAction: ForgeAction {
             cwd: try Self.nonEmpty(invocation.string(.cwd), field: "cwd"),
             permissionMode: try Self.nonEmpty(invocation.string(.permissionMode), field: "permission_mode"),
             envExtra: try ValueBridge.strings(invocation[.envExtra]),
-            shareSession: invocation[.shareSession] == .bool(true)
+            shareSession: invocation[.shareSession] == .bool(true),
+            session: try Self.nonEmpty(invocation.string(.session), field: "session").map(SessionName.init)
         )
+
+        // Both say which session the body speaks through, so they cannot both stand.
+        guard !(settings.shareSession && settings.session != nil) else {
+            throw RunRefused("invoke: session and share_session: true cannot be given together")
+        }
 
         return try await Deadline(seconds: ValueBridge.number(invocation[.timeout])).run {
             try await environment.capabilities.agent.withSession(settings) {
@@ -100,7 +110,7 @@ struct InvokeAction: ForgeAction {
     }
 
     // null means "unset" and stays nil; an empty string is an author mistake, not
-    // a quiet fallback into the daemon's own working directory.
+    // a quiet fallback into what unset means.
     private static func nonEmpty(_ string: String?, field: String) throws -> String? {
         guard string != "" else {
             throw RunRefused(

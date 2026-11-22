@@ -9,6 +9,9 @@ import Foundation
 
 struct ClaudeBackend: Backend {
     // MARK: - Property
+    // What claude writes to stderr when `--resume` names a conversation it does not have.
+    private static let missingConversation = "No conversation found with session ID"
+    
     let executable: String
     let translator: ClaudeTranslator
     
@@ -134,13 +137,22 @@ struct ClaudeBackend: Backend {
         try Task.checkCancellation()
         
         if result.exitCode != 0 {
-            throw BackendNonzeroExit(
+            let exit = BackendNonzeroExit(
                 "claude exit \(result.exitCode) (turn \(index)):"
                     + " \(Self.failureDetail(stderr: result.stderr, stdout: result.stdout))",
                 exitCode: result.exitCode,
                 stderr: result.stderr,
                 stdout: result.stdout
             )
+            
+            if established, result.stderr.contains(Self.missingConversation) {
+                throw BackendSessionLost(
+                    "claude has no conversation for session \(sessionID) (turn \(index))",
+                    exit: exit
+                )
+            }
+            
+            throw exit
         }
         
         let parsed = reader.snapshot()
@@ -181,6 +193,25 @@ struct ClaudeBackend: Backend {
     
     func openSession() -> any BackendSession {
         ClaudeSession(sessionID: UUID().uuidString)
+    }
+    
+    func record(of session: any BackendSession) throws -> JSONValue {
+        guard let session = session as? ClaudeSession else {
+            throw BackendSessionNotKept("the session is not one claude opened")
+        }
+        
+        return ["session_id": .string(session.sessionID), "turn_index": .int(session.turnIndex)]
+    }
+    
+    func session(from record: JSONValue) throws -> any BackendSession {
+        guard
+            let sessionID = record["session_id"]?.stringValue,
+            let turnIndex = record["turn_index"]?.intValue
+        else {
+            throw BackendSessionNotKept("the record does not name a claude session")
+        }
+        
+        return ClaudeSession(sessionID: sessionID, turnIndex: turnIndex, established: true)
     }
     
     // MARK: - Private

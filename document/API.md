@@ -15,7 +15,7 @@ For what a workflow file holds and the verbs Forge lends a run, see
 **[Spec.md](./Spec.md)**.
 
 - [1. Invocation & configuration](#1-invocation--configuration): version, binary/socket discovery, config, env, global options, exit status
-- [2. CLI surface](#2-cli-surface): [`serve`](#forge-serve) · [`workflow`](#forge-workflow) · [`schedule`](#forge-schedule) · [`job`](#forge-job) · [`resource`](#forge-resource) · [`service`](#forge-service) · [`status`](#forge-status) · [`policy`](#forge-policy) · [`token issue`](#forge-token-issue)
+- [2. CLI surface](#2-cli-surface): [`serve`](#forge-serve) · [`workflow`](#forge-workflow) · [`schedule`](#forge-schedule) · [`job`](#forge-job) · [`session`](#forge-session) · [`resource`](#forge-resource) · [`service`](#forge-service) · [`status`](#forge-status) · [`policy`](#forge-policy) · [`token issue`](#forge-token-issue)
 - [3. RPC transport](#3-rpc-transport)
 - [4. RPC methods](#4-rpc-methods)
 - [5. Authentication](#5-authentication)
@@ -366,6 +366,22 @@ token (each token has its own id), not with its principal.
 | `forge job update <id> [--note --brief --ref --ref-note --item --item-desc --item-status --status] [--json]` | `job.update` | field-level ops, append-safe |
 | `forge job delete <id> [--json]` | `job.delete` | remove a reviewed ticket (unlinks it from its parent) |
 
+### `forge session`
+
+List, show and delete the agent sessions kept by name. An `invoke` that names
+a `session` speaks through a conversation that outlives it (see
+[Spec.md](./Spec.md), `Forge.invoke`). The daemon keeps one record per name
+under `<instanceHome>/state/sessions/<name>.json`: the backend's handle on the
+conversation, the settings the session was made with, and when it was made and
+last used. The conversation itself stays with the backend. A record is written
+when a turn finishes, so a session no turn finished in is not kept.
+
+| Command | RPC | Notes |
+|---------|-----|-------|
+| `forge session list [--json]` | `session.list` | every kept session, by name |
+| `forge session show <name> [--json]` | `session.show` | one session in full |
+| `forge session delete <name> [--json]` | `session.delete` | drop the record; the name starts a new conversation next time |
+
 ### `forge resource`
 
 Inspect files under the working directory. The daemon hands out only relative
@@ -581,6 +597,9 @@ under attenuation from the presenter's principal (section 5).
 | `job.list` | token | no | `job list` |
 | `job.update` | token | no | `job update` |
 | `job.delete` | token | no | `job delete` |
+| `session.list` | token | no | `session list` |
+| `session.show` | token | no | `session show` |
+| `session.delete` | token | no | `session delete` |
 | `resource.list` | token | no | `resource list` |
 | `resource.read` | token | no | `resource read` |
 | `policy.list` | token | no | `policy list` |
@@ -910,6 +929,36 @@ records the attachment as a touch event.
 **params** `{"token","id"}`. **result** `{"id","deleted":true}`. Removes the
 ticket and unlinks it from its parent's children.
 
+### `session.list`
+
+**params** `{"token"}`. **result**
+
+```json
+{"sessions":[{"name","provider","handle","model"?,"allowed"?,"permission_mode"?,
+              "created_at","used_at","turns","held","waiting"}]}
+```
+
+Sorted by name; a name is in lowercase, whatever case the `invoke` spelled it in. `handle` is what the backend wrote to find the conversation
+again (`claude`: `{"session_id","turn_index"}`). `model`, `allowed` and
+`permission_mode` are the session's settings as its first `invoke` gave them,
+absent where it gave none. `turns` counts the turns finished since the
+conversation started. `held` is whether an `invoke` holds the session now, and
+`waiting` how many wait behind it.
+
+A record that does not read is left out of the list; `session.show` says why.
+
+### `session.show`
+
+**params** `{"token","name"}`. **result** `{"session":{...}}`, one row of
+`session.list`. Unknown name, a name that is not a session name, or a record
+that does not read → `SessionStoreError`.
+
+### `session.delete`
+
+**params** `{"token","name"}`. **result** `{"name","deleted":true}`. Removes
+the daemon's record and leaves the backend's conversation alone. A session an
+`invoke` holds, or a name with no record → `SessionStoreError`.
+
 ### `resource.list`
 
 **params** `{"token"}`. **result** `{"resources":[{"path","size","mtime"}]}`.
@@ -1152,6 +1201,9 @@ The error envelope is `{"type": "<ErrorType>", "message": "<text>"}` and the fie
 | `ProtocolError` | the request's envelope or payload is malformed, or an id it names is invalid, taken or missing |
 | `JobStoreError` | a job file is missing or unreadable |
 | `AgentValidationError` | an `invoke`'s agent cannot be built: its model, tools or `permission_mode`, or a combination its provider cannot run; fix the workflow |
+| `SessionStoreError` | a session name is not path components of `[A-Za-z0-9._-]` (none starting with a dot or ending in `.json`), no session is kept under it, its record does not read, or it is held by a running `invoke` (`session.delete`) |
+| `BackendSessionNotKept` | an `invoke` names a `session` on a backend that does not keep one past the `invoke`; drop the name or use a backend that does |
+| `BackendSessionLost` | a backend no longer has the conversation a session names. An `invoke` does not surface it: taking up a kept session, the name starts a new conversation and the daemon logs `session.lost`; later in the body the turn fails with the backend's `BackendNonzeroExit` |
 | `AgentSessionMissing` | an `agent` step ran outside an `invoke`, where no agent session is open; fix the workflow |
 | `ResourceError` | a file cannot be given: a path with an empty, `.` or `..` part, a workflow path spelled `<inline>`, a `resource.read` path that is absolute, hidden or led out by a link, a missing or unreadable file |
 | `ServiceFailed` | the service handling a `service.send` answered with an error; the message is the service's |

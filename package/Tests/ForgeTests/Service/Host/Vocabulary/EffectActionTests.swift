@@ -547,6 +547,54 @@ struct EffectActionTests {
         }
     }
 
+    @Test("invoke hands the session's name to the session it opens")
+    func invokeNamesItsSession() async throws {
+        // Given
+        let harness = Harness()
+        let spec = try harness.frontend.workflow("""
+        returns: String
+        failing: anything
+        result:
+          call:
+            procedure: invoke
+            arguments:
+              session: review/survey
+              body: { closure: { returns: String, result: { agent: hi } } }
+        """)
+        let sut = try harness.executor(agentReply: "sure!")
+
+        // When
+        let returned = try await sut.run(spec)
+
+        // Then
+        #expect(returned == .string("sure!"))
+        #expect(await harness.recorder.sessions.first?.session?.rawValue == "review/survey")
+    }
+
+    @Test("invoke with both a session and share_session: true is refused before a session opens")
+    func invokeRefusesSessionWithShareSession() async throws {
+        // Given
+        let harness = Harness()
+        let spec = try harness.frontend.workflow("""
+        returns: String
+        failing: anything
+        result:
+          call:
+            procedure: invoke
+            arguments:
+              session: review/survey
+              share_session: true
+              body: { closure: { returns: String, result: { agent: hi } } }
+        """)
+        let sut = try harness.executor()
+
+        // When / Then
+        await #expect(throws: RunRefused.self) {
+            try await sut.run(spec)
+        }
+        #expect(await harness.recorder.sessions.isEmpty)
+    }
+
     @Test("when the daemon responds, dispatch delegates execution")
     func dispatchDelegatesWhenDaemonAnswers() async throws {
         // Given
