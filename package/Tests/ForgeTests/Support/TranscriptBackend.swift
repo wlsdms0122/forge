@@ -32,14 +32,17 @@ final class TranscriptBackend: Backend, @unchecked Sendable {
     // The ids of the sessions compacted, in order.
     let compactions = OrderedCollector<String>()
     let cacheLifetime: Duration?
+    // The prompt whose turn the backend compacts its conversation during.
+    let overflowingPrompt: String?
     
     private let lock = NSLock()
     private var transcripts: [String: [String]] = [:]
     private var opened: Set<String> = []
     
     // MARK: - Initializer
-    init(cacheLifetime: Duration? = .seconds(3600)) {
+    init(cacheLifetime: Duration? = .seconds(3600), overflowingPrompt: String? = nil) {
         self.cacheLifetime = cacheLifetime
+        self.overflowingPrompt = overflowingPrompt
     }
     
     // MARK: - Public
@@ -67,7 +70,8 @@ final class TranscriptBackend: Backend, @unchecked Sendable {
         return BackendResponse(
             text: prompts.joined(separator: ","),
             durationMs: 1,
-            contextTokens: prompts.count * 1000
+            contextTokens: prompts.count * 1000,
+            isCompacted: invocation.prompt == overflowingPrompt
         )
     }
     
