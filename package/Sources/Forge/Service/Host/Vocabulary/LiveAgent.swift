@@ -14,11 +14,15 @@ import Warp
 // task-local scoping.
 struct LiveAgent: AgentServing {
     // MARK: - Property
+    private static let category = "session"
+
     let executor: AgentExecutor
+    let sessions: SessionStore
 
     // MARK: - Initializer
-    init(executor: AgentExecutor) {
+    init(executor: AgentExecutor, sessions: SessionStore) {
         self.executor = executor
+        self.sessions = sessions
     }
 
     // MARK: - Public
@@ -34,12 +38,39 @@ struct LiveAgent: AgentServing {
             return try await body()
         }
 
-        let agent = try Self.agent(from: settings)
-        let handle = try executor.openSession(provider: agent.provider)
-        let session = AgentSession(handle: handle, agent: agent)
+        // An invoke around this one already holds the name, so waiting for it
+        // would wait for this task itself.
+        if let name = settings.session, let held = AgentSession.held[name] {
+            return try await AgentSession.$current.withValue(held) {
+                try await body()
+            }
+        }
 
-        return try await AgentSession.$current.withValue(session) {
-            try await body()
+        if let name = settings.session, AgentSession.heldAroundFanOut.contains(name) {
+            throw RunRefused(
+                "invoke: session '\(name)' is held by an invoke around this fan-out,"
+                    + " which waits for this piece — a piece cannot enter it"
+            )
+        }
+
+        // A session without a name ends with this invoke, and no other invoke can ask for it.
+        guard let name = settings.session else {
+            return try await bind(try open(settings), body: body)
+        }
+
+        try await sessions.acquire(name)
+
+        do {
+            let session = try await enter(name: name, settings: settings)
+            let value = try await bind(session, body: body)
+
+            await sessions.release(name)
+
+            return value
+        } catch {
+            await sessions.release(name)
+
+            throw error
         }
     }
 
@@ -52,31 +83,58 @@ struct LiveAgent: AgentServing {
         }
 
         return try await LogContext.childNode {
-            let invocation = AgentInvocation(
-                id: UUID().uuidString,
-                agent: session.agent,
-                prompt: prompt,
-                session: session.handle
-            )
+            let text: String
 
-            return try await executor.run(invocation).text
+            do {
+                text = try await turn(prompt, in: session)
+            } catch let lost as BackendSessionLost {
+                // Only a kept session's first turn can find the conversation
+                // gone and start over; later, the body has turns in it that a
+                // new conversation would not hold.
+                guard case let .record(record, name, isConfirmed: false) = session.keeping else {
+                    throw lost.exit
+                }
+
+                try await renew(session, named: name, from: record)
+                text = try await turn(prompt, in: session)
+            }
+
+            try await keep(session)
+
+            return text
         }
     }
 
     // MARK: - Private
     private static func agent(from settings: AgentSessionSettings) throws -> Agent {
-        let permissionMode: PermissionMode?
+        try agent(
+            model: settings.model,
+            allowed: try settings.allowed?.map(ValueBridge.json),
+            permissionMode: settings.permissionMode,
+            settings: settings
+        )
+    }
 
-        if let raw = settings.permissionMode {
-            guard let mode = PermissionMode(rawValue: raw) else {
+    // The model, the tools and the permission mode are the session's; the
+    // working directory and the environment are each invoke's own.
+    private static func agent(
+        model: String?,
+        allowed: [JSONValue]?,
+        permissionMode: String?,
+        settings: AgentSessionSettings
+    ) throws -> Agent {
+        let mode: PermissionMode?
+
+        if let raw = permissionMode {
+            guard let known = PermissionMode(rawValue: raw) else {
                 throw AgentValidationError(
                     "invoke: permission_mode must be one of bypass/safe/restrict, got \(raw)"
                 )
             }
 
-            permissionMode = mode
+            mode = known
         } else {
-            permissionMode = nil
+            mode = nil
         }
 
         let environment = SubprocessEnv.merge(
@@ -85,11 +143,129 @@ struct LiveAgent: AgentServing {
         ) ?? [:]
 
         return try Agent(
-            model: settings.model,
-            allowed: try settings.allowed?.map { item in try AgentToolReference.decode(ValueBridge.json(item)) },
+            model: model,
+            allowed: try allowed?.map(AgentToolReference.decode),
             workingDirectory: settings.cwd,
             environment: environment,
-            permissionMode: permissionMode
+            permissionMode: mode
         )
+    }
+
+    private func bind(
+        _ session: AgentSession,
+        body: @Sendable () async throws -> Warp.Value
+    ) async throws -> Warp.Value {
+        var held = AgentSession.held
+
+        if let name = session.name { held[name] = session }
+
+        return try await AgentSession.$current.withValue(session) {
+            try await AgentSession.$held.withValue(held) {
+                try await body()
+            }
+        }
+    }
+
+    // A session that ends with its invoke, on the backend the settings name.
+    private func open(_ settings: AgentSessionSettings) throws -> AgentSession {
+        let agent = try Self.agent(from: settings)
+        let backend = try executor.backends.resolve(provider: agent.provider)
+
+        return AgentSession(
+            agent: agent,
+            backend: backend,
+            handle: backend.openSession(),
+            keeping: .none
+        )
+    }
+
+    // The session a name stands for: the kept one where there is a record, a
+    // new one from this invoke's settings where there is none.
+    private func enter(name: SessionName, settings: AgentSessionSettings) async throws -> AgentSession {
+        guard let record = try await sessions.record(name) else {
+            let session = try open(settings)
+            let now = ISO8601.string(Date())
+
+            session.keeping = .record(
+                SessionRecord(
+                    provider: try executor.backends.name(provider: session.agent.provider),
+                    handle: try session.backend.record(of: session.handle),
+                    model: settings.model,
+                    allowed: try settings.allowed?.map(ValueBridge.json),
+                    permissionMode: settings.permissionMode,
+                    createdAt: now,
+                    usedAt: now,
+                    turns: 0
+                ),
+                name: name,
+                isConfirmed: true
+            )
+
+            return session
+        }
+
+        // A session made without a model still runs on the backend its record
+        // names, whatever is registered by now.
+        let backend = try executor.backends.resolve(provider: record.provider)
+        let agent = try Self.agent(
+            model: record.model ?? record.provider,
+            allowed: record.allowed,
+            permissionMode: record.permissionMode,
+            settings: settings
+        )
+
+        return AgentSession(
+            agent: agent,
+            backend: backend,
+            handle: try backend.session(from: record.handle),
+            keeping: .record(record, name: name, isConfirmed: false)
+        )
+    }
+
+    private func turn(_ prompt: String, in session: AgentSession) async throws -> String {
+        let invocation = AgentInvocation(
+            id: UUID().uuidString,
+            agent: session.agent,
+            prompt: prompt,
+            session: session.handle
+        )
+
+        return try await executor.run(invocation).text
+    }
+
+    // The backend lost the conversation, so the name starts a new one.
+    private func renew(
+        _ session: AgentSession,
+        named name: SessionName,
+        from record: SessionRecord
+    ) async throws {
+        session.handle = session.backend.openSession()
+        session.keeping = .record(
+            record.restarted(
+                handle: try session.backend.record(of: session.handle),
+                at: ISO8601.string(Date())
+            ),
+            name: name,
+            isConfirmed: true
+        )
+
+        await Log.shared.append(
+            "session.lost",
+            LogPayload(["session": name.rawValue, "provider": record.provider]),
+            category: Self.category
+        )
+    }
+
+    // The record follows each turn, so a daemon that stops mid-invoke leaves
+    // the session where its last finished turn left it.
+    private func keep(_ session: AgentSession) async throws {
+        guard case .record(var record, let name, _) = session.keeping else { return }
+
+        record.handle = try session.backend.record(of: session.handle)
+        record.usedAt = ISO8601.string(Date())
+        record.turns += 1
+        session.keeping = .record(record, name: name, isConfirmed: true)
+
+        try await sessions.write(record, for: name)
     }
 }

@@ -84,6 +84,9 @@ package actor Server {
         let fireLedger = FireLedger(
             path: config.stateDirectory.appendingPathComponent("fire-ledger.json")
         )
+        let sessionStore = SessionStore(
+            directory: config.stateDirectory.appendingPathComponent("sessions", isDirectory: true)
+        )
         let workingDirectory = WorkingDirectory(directory: config.workingDirectory)
         let workflowsLocal = WorkflowReader(
             workingDirectory: workingDirectory,
@@ -111,7 +114,7 @@ package actor Server {
             jobStore: jobStoreLocal,
             capabilities: CapabilitySet(
                 shell: LiveShell(),
-                agent: LiveAgent(executor: executor),
+                agent: LiveAgent(executor: executor, sessions: sessionStore),
                 resources: LiveResources(workingDirectory: workingDirectory)
             )
         )
@@ -169,6 +172,7 @@ package actor Server {
             policyStore: policyStoreLocal
         )
         let job = JobNamespace(store: jobStoreLocal, workRegistry: workRegistryLocal)
+        let session = SessionNamespace(store: sessionStore)
         let resource = ResourceNamespace(workingDirectory: workingDirectory)
         let policy = PolicyNamespace(store: policyStoreLocal)
         let token = TokenNamespace(authority: tokenAuthorityLocal)
@@ -185,6 +189,7 @@ package actor Server {
             methods: workflow.methods
                 + schedule.methods
                 + job.methods
+                + session.methods
                 + resource.methods
                 + policy.methods
                 + token.methods

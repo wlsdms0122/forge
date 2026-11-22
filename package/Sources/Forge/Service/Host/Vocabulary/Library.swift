@@ -61,14 +61,15 @@ enum Library {
               - cwd: { type: String?, hint: "the directory the session works in, the backend's own where left out" }
               - permission_mode: { type: String?, hint: "bypass, safe or restrict, the backend's own where left out" }
               - share_session: { type: Bool, default: false, hint: "reuse the session of an enclosing invoke where there is one" }
-              - timeout: { type: Double?, hint: "seconds before the session fails with timeout" }
+              - session: { type: String?, hint: "the name of a session kept past this invoke, made where there is none; left out, the session ends with the invoke" }
+              - timeout: { type: Double?, hint: "seconds before the invoke fails with timeout, the wait for a held session counted" }
               - body: { type: "() throws -> some Result", hint: "the turns the session runs" }
             returns: some Result
             failing: anything
             result:
               call:
                 procedure: Forge.Native.invoke
-                arguments: [ { ref: model }, { ref: allowed }, { ref: env_extra }, { ref: cwd }, { ref: permission_mode }, { ref: share_session }, { ref: timeout }, { ref: body } ]
+                arguments: [ { ref: model }, { ref: allowed }, { ref: env_extra }, { ref: cwd }, { ref: permission_mode }, { ref: share_session }, { ref: session }, { ref: timeout }, { ref: body } ]
         
           agent:
             description: One prompt turn in the session the enclosing invoke opened, holding a step slot, and the reply.
@@ -178,6 +179,7 @@ enum Library {
           (parameter cwd (type (optional String)))
           (parameter permission_mode (type (optional String)))
           (parameter share_session (type Bool))
+          (parameter session (type (optional String)))
           (parameter timeout (type (optional Double)))
           (parameter body (type (procedure (parameters) (failing (anything)) (returns (some Result)))))
           (returns (some Result))

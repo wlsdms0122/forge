@@ -18,8 +18,21 @@ struct BackendRegistry: Sendable {
     
     // MARK: - Public
     func resolve(provider: String?) throws -> any Backend {
+        let name = try name(provider: provider)
+        
+        guard let backend = byProvider[name] else {
+            throw BackendNotRegistered(
+                "no backend registered for provider '\(name)' (have: \(byProvider.keys.sorted().joined(separator: ", ")))"
+            )
+        }
+        
+        return backend
+    }
+    
+    // The name a provider is registered under; with no provider, the one registered backend's.
+    func name(provider: String?) throws -> String {
         guard let provider else {
-            guard byProvider.count == 1, let sole = byProvider.values.first else {
+            guard byProvider.count == 1, let sole = byProvider.keys.first else {
                 throw BackendNotRegistered(
                     "a model names no provider, and \(byProvider.count) backends are registered"
                         + " (\(byProvider.keys.sorted().joined(separator: ", "))); name one as"
@@ -30,13 +43,7 @@ struct BackendRegistry: Sendable {
             return sole
         }
         
-        guard let backend = byProvider[provider] else {
-            throw BackendNotRegistered(
-                "no backend registered for provider '\(provider)' (have: \(byProvider.keys.sorted().joined(separator: ", ")))"
-            )
-        }
-        
-        return backend
+        return provider
     }
     
     // MARK: - Private
