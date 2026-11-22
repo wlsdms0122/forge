@@ -107,16 +107,19 @@ struct EffectActionTests {
         // MARK: - Public
         func withSession(
             _ settings: AgentSessionSettings,
+            setup: (@Sendable () async throws -> Void)?,
             body: @Sendable () async throws -> Warp.Value
         ) async throws -> Warp.Value {
             await recorder.recordSession(settings)
     
             return try await Self.$sessionOpen.withValue(true) {
-                try await body()
+                try await setup?()
+    
+                return try await body()
             }
         }
     
-        func send(prompt: String) async throws -> String {
+        func send(prompt: String, slots: any StepSlotProviding) async throws -> String {
             guard Self.sessionOpen else {
                 throw RunRefused("agent step has no active session — run it inside invoke")
             }

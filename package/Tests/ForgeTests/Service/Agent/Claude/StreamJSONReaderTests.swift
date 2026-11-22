@@ -36,6 +36,42 @@ struct StreamJSONReaderTests {
         ))
     }
     
+    @Test("the conversation's size is what the turn's last request carried in, cached or not")
+    func contextIsTheLastRequestsInput() {
+        // Given
+        let sut = StreamJSON.Reader()
+
+        // When
+        sut.feed(
+            line: #"{"type":"assistant","message":{"content":[],"usage":{"input_tokens":4,"cache_creation_input_tokens":42006,"cache_read_input_tokens":14040,"output_tokens":9}}}"#,
+            at: .fixture
+        )
+        sut.feed(
+            line: #"{"type":"assistant","message":{"content":[{"type":"text","text":"done"}],"usage":{"input_tokens":2,"cache_creation_input_tokens":518,"cache_read_input_tokens":56046,"output_tokens":6}}}"#,
+            at: .fixture
+        )
+
+        // Then
+        #expect(sut.snapshot().contextTokens == 56566)
+        #expect(sut.snapshot().sawCompaction == false)
+    }
+
+    @Test("a compact boundary in the stream marks the turn as compacted")
+    func compactBoundaryMarksCompaction() {
+        // Given
+        let sut = StreamJSON.Reader()
+
+        // When
+        sut.feed(
+            line: #"{"type":"system","subtype":"compact_boundary","compact_metadata":{"trigger":"auto","pre_tokens":56211,"post_tokens":7006}}"#,
+            at: .fixture
+        )
+
+        // Then
+        #expect(sut.snapshot().sawCompaction)
+        #expect(sut.snapshot().contextTokens == nil)
+    }
+
     @Test("tool use and result each carry their own timestamp")
     func toolUseAndToolResultGetSeparateTimestamps() {
         // Given

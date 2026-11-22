@@ -21,6 +21,8 @@ struct InvokeAction: ForgeAction {
         case permissionMode
         case shareSession
         case session
+        case setup
+        case compact
         case timeout
         case body
 
@@ -47,6 +49,15 @@ struct InvokeAction: ForgeAction {
 
             case .session:
                 Parameter(name: "session", type: .optional(.string))
+
+            case .setup:
+                Parameter(
+                    name: "setup",
+                    type: .optional(.procedure(ProcedureType(returns: .null, failing: .anything)))
+                )
+
+            case .compact:
+                Parameter(name: "compact", type: .bool)
 
             case .timeout:
                 Parameter(name: "timeout", type: .optional(.double))
@@ -86,7 +97,8 @@ struct InvokeAction: ForgeAction {
             permissionMode: try Self.nonEmpty(invocation.string(.permissionMode), field: "permission_mode"),
             envExtra: try ValueBridge.strings(invocation[.envExtra]),
             shareSession: invocation[.shareSession] == .bool(true),
-            session: try Self.nonEmpty(invocation.string(.session), field: "session").map(SessionName.init)
+            session: try Self.nonEmpty(invocation.string(.session), field: "session").map(SessionName.init),
+            compact: invocation[.compact] == .bool(true)
         )
 
         // Both say which session the body speaks through, so they cannot both stand.
@@ -94,8 +106,16 @@ struct InvokeAction: ForgeAction {
             throw RunRefused("invoke: session and share_session: true cannot be given together")
         }
 
+        let setup: (@Sendable () async throws -> Void)?
+
+        if case let .procedure(procedure) = invocation[.setup] {
+            setup = { _ = try await invocation.call(procedure) }
+        } else {
+            setup = nil
+        }
+
         return try await Deadline(seconds: ValueBridge.number(invocation[.timeout])).run {
-            try await environment.capabilities.agent.withSession(settings) {
+            try await environment.capabilities.agent.withSession(settings, setup: setup) {
                 try await invocation.call(body)
             }
         }

@@ -37,8 +37,11 @@ struct LiveAgentNamedSessionTests {
         }
         
         // Then
+        let record = try #require(try await SessionStore(directory: directory).record(try SessionName("review/survey")))
+        
         #expect(reply == .string("first,second"))
-        #expect(try await SessionStore(directory: directory).record(try SessionName("review/survey"))?.turns == 2)
+        #expect(record.turns == 2)
+        #expect(record.contextTokens == 2000)
     }
     
     @Test("the model, the tools and the permission mode are the session's, and the working directory is each invoke's")

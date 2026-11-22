@@ -132,6 +132,12 @@ with the same name continues it, from this run or another, and across a
 daemon restart. Invokes of one name take turns, so parallel runs can share
 a reviewer or a chat thread without talking over each other.
 
+A kept dialogue grows, so the daemon compacts it before a turn once it is
+past a size, or past a smaller one when the backend's cache of it has gone
+cold. An `invoke` may bring a `setup`, the turns that build the session's
+context; the daemon runs it when the dialogue is new or was compacted, and
+the workflow never asks which.
+
 ## Philosophy
 
 ### Everything is data

@@ -9,7 +9,7 @@ import Foundation
 import Warp
 import WarpStandard
 
-struct ForgeEnvironment: ConcurrentEnvironment {
+struct ForgeEnvironment: ConcurrentEnvironment, StepSlotProviding {
     // MARK: - Property
     let capabilities: CapabilitySet
     let dispatcher: any RunDispatching

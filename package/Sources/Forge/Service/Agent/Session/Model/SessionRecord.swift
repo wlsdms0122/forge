@@ -19,6 +19,10 @@ struct SessionRecord: Sendable, Equatable, Codable {
         case createdAt = "created_at"
         case usedAt = "used_at"
         case turns
+        case contextTokens = "context_tokens"
+        case compact
+        case compactions
+        case needsSetup = "needs_setup"
     }
     
     // MARK: - Property
@@ -30,6 +34,14 @@ struct SessionRecord: Sendable, Equatable, Codable {
     let createdAt: String
     var usedAt: String
     var turns: Int
+    // The conversation's size as its last turn ended; nil until a turn reports one.
+    var contextTokens: Int?
+    // Whether the daemon compacts the session as it grows.
+    let compact: Bool
+    // How many times the daemon has compacted the conversation.
+    var compactions: Int
+    // Whether the conversation holds no context a setup built.
+    var needsSetup: Bool
     
     // MARK: - Initializer
     init(
@@ -40,7 +52,11 @@ struct SessionRecord: Sendable, Equatable, Codable {
         permissionMode: String?,
         createdAt: String,
         usedAt: String,
-        turns: Int
+        turns: Int,
+        contextTokens: Int? = nil,
+        compact: Bool,
+        compactions: Int = 0,
+        needsSetup: Bool = true
     ) {
         self.provider = provider
         self.handle = handle
@@ -50,6 +66,10 @@ struct SessionRecord: Sendable, Equatable, Codable {
         self.createdAt = createdAt
         self.usedAt = usedAt
         self.turns = turns
+        self.contextTokens = contextTokens
+        self.compact = compact
+        self.compactions = compactions
+        self.needsSetup = needsSetup
     }
     
     // MARK: - Public
@@ -63,7 +83,8 @@ struct SessionRecord: Sendable, Equatable, Codable {
             permissionMode: permissionMode,
             createdAt: time,
             usedAt: time,
-            turns: 0
+            turns: 0,
+            compact: compact
         )
     }
     

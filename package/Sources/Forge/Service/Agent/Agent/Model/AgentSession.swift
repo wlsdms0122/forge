@@ -12,18 +12,29 @@ import Foundation
 final class AgentSession: @unchecked Sendable {
     // MARK: - Property
     // The session the agent turns of the current task speak through.
-    @TaskLocal static var current: AgentSession?
+    @TaskLocal static var current: AgentSessionBinding?
     // The sessions the invokes around the current task hold, by name.
-    @TaskLocal static var held: [SessionName: AgentSession] = [:]
+    @TaskLocal static var held: [SessionName: AgentSessionBinding] = [:]
     // The names held by invokes around a fan-out the current task is a piece
     // of. A piece cannot join them, and waiting for one waits for itself.
     @TaskLocal static var heldAroundFanOut: Set<SessionName> = []
 
     let agent: Agent
     let backend: any Backend
+    // Whether the session is compacted as it grows past the daemon's sizes.
+    let compacts: Bool
 
     var handle: any BackendSession
     var keeping: SessionKeeping
+    // The conversation's size as its last turn ended; nil until a turn reports one.
+    var contextTokens: Int?
+    // When the session's last turn ended; nil before its first.
+    var usedAt: Date?
+    // Whether the conversation holds no context a setup built: it is new, or
+    // was compacted since one ran.
+    var needsSetup: Bool
+    // Whether a setup is running, whose own turns go out without one.
+    var isSettingUp = false
 
     // The name of a kept session; nil for one that ends with its invoke.
     var name: SessionName? {
@@ -36,13 +47,21 @@ final class AgentSession: @unchecked Sendable {
     init(
         agent: Agent,
         backend: any Backend,
+        compacts: Bool,
         handle: any BackendSession,
-        keeping: SessionKeeping
+        keeping: SessionKeeping,
+        contextTokens: Int? = nil,
+        usedAt: Date? = nil,
+        needsSetup: Bool = true
     ) {
         self.agent = agent
         self.backend = backend
+        self.compacts = compacts
         self.handle = handle
         self.keeping = keeping
+        self.contextTokens = contextTokens
+        self.usedAt = usedAt
+        self.needsSetup = needsSetup
     }
 
     // MARK: - Public

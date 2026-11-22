@@ -1,0 +1,21 @@
+# A named session with a setup: the session `e2e/booted` is set up by one
+# agent turn before the first turn of the body, and a later run that finds
+# it set up sends only its own turn.
+uses: [Forge]
+procedures:
+  main:
+    access: public
+    returns: String
+    failing: anything
+    result:
+      call:
+        procedure: invoke
+        arguments:
+          model: claude
+          session: e2e/booted
+          setup:
+            closure:
+              body:
+                - let: booted
+                  value: { call: { procedure: agent, arguments: { prompt: boot } } }
+          body: { closure: { returns: String, result: { call: { procedure: agent, arguments: { prompt: work } } } } }

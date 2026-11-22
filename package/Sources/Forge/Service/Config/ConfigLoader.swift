@@ -20,6 +20,7 @@ enum ConfigLoader {
         var logMaximumBytes: Int?
         var hooks: PartialHooks = PartialHooks()
         var pool: PartialPool = PartialPool()
+        var session: PartialSession = PartialSession()
         
         // MARK: - Initializer
         // MARK: - Public
@@ -67,6 +68,16 @@ enum ConfigLoader {
         // MARK: - Property
         var maximumConcurrentSteps: Int?
         var maximumActiveRuns: Int?
+        
+        // MARK: - Initializer
+        // MARK: - Public
+        // MARK: - Private
+    }
+    
+    struct PartialSession {
+        // MARK: - Property
+        var contextLimit: Int?
+        var coldCompactFloor: Int?
         
         // MARK: - Initializer
         // MARK: - Public
@@ -261,6 +272,38 @@ enum ConfigLoader {
             )
         )
         
+        let contextLimitSource = resolveInt(
+            toml: fromFile.session.contextLimit,
+            environmentName: "FORGE_SESSION_CONTEXT_LIMIT",
+            environment: environment,
+            valid: { value in value > 0 },
+            builtin: ForgeConfig.SessionConfig().contextLimit
+        ).source
+        
+        entries.append(
+            .init(
+                key: "session.context_limit",
+                value: String(config.session.contextLimit),
+                source: contextLimitSource
+            )
+        )
+        
+        let coldCompactFloorSource = resolveInt(
+            toml: fromFile.session.coldCompactFloor,
+            environmentName: "FORGE_SESSION_COLD_COMPACT_FLOOR",
+            environment: environment,
+            valid: { value in value > 0 },
+            builtin: ForgeConfig.SessionConfig().coldCompactFloor
+        ).source
+        
+        entries.append(
+            .init(
+                key: "session.cold_compact_floor",
+                value: String(config.session.coldCompactFloor),
+                source: coldCompactFloorSource
+            )
+        )
+        
         return (config, ConfigReport(tomlPath: tomlURL?.path, entries: entries))
     }
     
@@ -276,7 +319,7 @@ enum ConfigLoader {
         
         var partial = PartialConfig()
         
-        try file.admit(["directory", "log", "hooks", "pool", "provider", "service"])
+        try file.admit(["directory", "log", "hooks", "pool", "session", "provider", "service"])
         
         if let directory = try file.table("directory") {
             try directory.admit(["working", "policy"])
@@ -304,6 +347,13 @@ enum ConfigLoader {
             
             partial.pool.maximumConcurrentSteps = try pool.int("maximum_concurrent_steps")
             partial.pool.maximumActiveRuns = try pool.int("maximum_active_runs")
+        }
+        
+        if let session = try file.table("session") {
+            try session.admit(["context_limit", "cold_compact_floor"])
+            
+            partial.session.contextLimit = try session.int("context_limit")
+            partial.session.coldCompactFloor = try session.int("cold_compact_floor")
         }
         
         if let providers = try file.table("provider") {
@@ -387,6 +437,24 @@ enum ConfigLoader {
         ).value
         let pool = ForgeConfig.PoolConfig(maximumConcurrentSteps: poolMax, maximumActiveRuns: runCap)
         
+        let defaultSession = ForgeConfig.SessionConfig()
+        let session = ForgeConfig.SessionConfig(
+            contextLimit: resolveInt(
+                toml: file.session.contextLimit,
+                environmentName: "FORGE_SESSION_CONTEXT_LIMIT",
+                environment: environment,
+                valid: { value in value > 0 },
+                builtin: defaultSession.contextLimit
+            ).value,
+            coldCompactFloor: resolveInt(
+                toml: file.session.coldCompactFloor,
+                environmentName: "FORGE_SESSION_COLD_COMPACT_FLOOR",
+                environment: environment,
+                valid: { value in value > 0 },
+                builtin: defaultSession.coldCompactFloor
+            ).value
+        )
+        
         let services: [ServiceConfig] = (file.services ?? []).compactMap { service in
             guard !service.command.isEmpty else {
                 FileHandle.standardError.write(
@@ -437,7 +505,8 @@ enum ConfigLoader {
             policyDirectory: policyDirectory,
             services: services,
             hooks: hooks,
-            pool: pool
+            pool: pool,
+            session: session
         )
     }
     

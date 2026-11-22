@@ -51,7 +51,9 @@ struct SessionListCommand: ParsableCommand {
                 count > 0 ? " (\(count) waiting)" : nil
             } ?? ""
             
-            print("\(name)\t[\(provider)]\(held)\(waiting)\tturns \(turns)\tused \(used)")
+            let context = (session["context_tokens"]?.intValue).map { tokens in "\tcontext \(tokens)" } ?? ""
+            
+            print("\(name)\t[\(provider)]\(held)\(waiting)\tturns \(turns)\(context)\tused \(used)")
         }
     }
     

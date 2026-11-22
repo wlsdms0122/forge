@@ -3,7 +3,10 @@
 # stream-json protocol for StreamJSON.Reader: one assistant frame, one terminal
 # result frame, exit 0. The reply embeds the session mode (new vs resume) and
 # the session id so workflows can assert session inheritance from the outside.
+# AGENT_STUB_CONTEXT_TOKENS is the conversation size a turn reports, and a
+# `/compact` prompt answers as claude's compact turn does.
 import json
+import os
 import sys
 
 arguments = sys.argv[1:]
@@ -19,9 +22,27 @@ fresh = option("--session-id")
 mode, session = ("resume", resumed) if resumed else ("new", fresh or "none")
 text = f"stub[{mode}:{session}] {prompt[:80]}"
 
+if prompt == "/compact":
+    print(json.dumps({
+        "type": "system",
+        "subtype": "compact_boundary",
+        "compact_metadata": {"trigger": "manual"},
+    }), flush=True)
+    print(json.dumps({
+        "type": "result",
+        "result": "",
+        "usage": {"input_tokens": 0, "output_tokens": 0},
+    }), flush=True)
+    sys.exit(0)
+
+message = {"content": [{"type": "text", "text": text}]}
+
+if "AGENT_STUB_CONTEXT_TOKENS" in os.environ:
+    message["usage"] = {"input_tokens": int(os.environ["AGENT_STUB_CONTEXT_TOKENS"]), "output_tokens": 1}
+
 print(json.dumps({
     "type": "assistant",
-    "message": {"content": [{"type": "text", "text": text}]},
+    "message": message,
 }), flush=True)
 print(json.dumps({
     "type": "result",

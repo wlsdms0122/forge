@@ -50,7 +50,9 @@ struct AgentExecutor: Sendable {
                 text: response.text,
                 usage: response.usage,
                 toolEvents: response.toolEvents,
-                durationMs: durationMs
+                durationMs: durationMs,
+                contextTokens: response.contextTokens,
+                isCompacted: response.isCompacted
             )
         } catch {
             for hook in errorHooks {
@@ -71,7 +73,9 @@ struct AgentExecutor: Sendable {
                         text: response.text,
                         usage: response.usage,
                         toolEvents: response.toolEvents,
-                        durationMs: durationMs
+                        durationMs: durationMs,
+                        contextTokens: response.contextTokens,
+                        isCompacted: response.isCompacted
                     )
                 }
             }

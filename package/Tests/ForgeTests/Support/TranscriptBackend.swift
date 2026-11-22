@@ -10,7 +10,9 @@ import Foundation
 
 // A backend that keeps each conversation's prompts under the session's id, the
 // way a backend with resumable sessions does. A turn replies with the prompts
-// the conversation has seen so far, joined by a comma.
+// the conversation has seen so far, joined by a comma, and reports a
+// conversation of a thousand tokens a prompt. Compacting a conversation leaves
+// one entry, "…", in place of its prompts.
 final class TranscriptBackend: Backend, @unchecked Sendable {
     final class Session: BackendSession, Sendable {
         // MARK: - Property
@@ -27,12 +29,22 @@ final class TranscriptBackend: Backend, @unchecked Sendable {
     
     // MARK: - Property
     let invocations = OrderedCollector<AgentInvocation>()
+    // The ids of the sessions compacted, in order.
+    let compactions = OrderedCollector<String>()
+    let cacheLifetime: Duration?
+    // The prompt whose turn the backend compacts its conversation during.
+    let overflowingPrompt: String?
     
     private let lock = NSLock()
     private var transcripts: [String: [String]] = [:]
     private var opened: Set<String> = []
     
     // MARK: - Initializer
+    init(cacheLifetime: Duration? = .seconds(3600), overflowingPrompt: String? = nil) {
+        self.cacheLifetime = cacheLifetime
+        self.overflowingPrompt = overflowingPrompt
+    }
+    
     // MARK: - Public
     func invoke(_ invocation: AgentInvocation) async throws -> BackendResponse {
         guard let session = invocation.session as? Session else {
@@ -55,7 +67,12 @@ final class TranscriptBackend: Backend, @unchecked Sendable {
             return transcripts[session.id] ?? []
         }
         
-        return BackendResponse(text: prompts.joined(separator: ","), durationMs: 1)
+        return BackendResponse(
+            text: prompts.joined(separator: ","),
+            durationMs: 1,
+            contextTokens: prompts.count * 1000,
+            isCompacted: invocation.prompt == overflowingPrompt
+        )
     }
     
     func openSession() -> any BackendSession {
@@ -80,6 +97,25 @@ final class TranscriptBackend: Backend, @unchecked Sendable {
         }
         
         return Session(id: id)
+    }
+    
+    func compact(_ session: any BackendSession, agent: Agent) async throws {
+        guard let session = session as? Session else {
+            throw BackendCompactionUnavailable("the session is not a transcript session")
+        }
+        
+        try lock.withLock {
+            guard transcripts[session.id] != nil else {
+                throw BackendSessionLost(
+                    "no conversation for \(session.id)",
+                    exit: BackendNonzeroExit("transcript exit 1", exitCode: 1)
+                )
+            }
+            
+            transcripts[session.id] = ["…"]
+        }
+        
+        compactions.append(session.id)
     }
     
     // Drops every conversation, as a backend whose own storage was cleared.

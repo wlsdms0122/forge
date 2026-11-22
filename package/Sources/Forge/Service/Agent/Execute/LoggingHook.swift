@@ -59,6 +59,9 @@ struct LoggingHook: PreHook, PostHook, ErrorHook {
             "usage": response.usage?.asDictionary as Any? ?? NSNull()
         ]
         
+        if let contextTokens = response.contextTokens { responsePayload["context_tokens"] = contextTokens }
+        if response.isCompacted { responsePayload["compacted"] = true }
+        
         for (key, value) in forge { responsePayload[key] = value }
         
         await log.append(

@@ -129,9 +129,9 @@ is refused before the text is read, and no catch takes it.
 
 ### `Forge.invoke`
 
-`invoke(model: String?, allowed: Array<Any>?, env_extra: Dictionary<String, String>, cwd: String?, permission_mode: String?, share_session: Bool, session: String?, timeout: Double?, body: () throws -> some Result) -> some Result`,
-failing anything. `env_extra` defaults to an empty dictionary and `share_session` to
-`false`.
+`invoke(model: String?, allowed: Array<Any>?, env_extra: Dictionary<String, String>, cwd: String?, permission_mode: String?, share_session: Bool, session: String?, setup: (() throws -> Null)?, compact: Bool, timeout: Double?, body: () throws -> some Result) -> some Result`,
+failing anything. `env_extra` defaults to an empty dictionary, `share_session` to
+`false` and `compact` to `true`.
 
 Opens an agent session with these settings and calls `body` inside it; what
 the body returns is what `invoke` returns, so the body writes its `returns`.
@@ -158,7 +158,7 @@ with the `invoke` that opened it. A name is path components of
   settings. Where one is, the `invoke` continues its conversation, in this
   run or another, before or after a daemon restart, and the workflow does not
   tell the two apart.
-- `model`, `allowed` and `permission_mode` are the session's: a kept session
+- `model`, `allowed`, `permission_mode` and `compact` are the session's: a kept session
   runs with the ones it was made with, and a later `invoke`'s are not read,
   as with `share_session`. `cwd` and `env_extra` are each `invoke`'s own.
 - One `invoke` holds a session at a time, for its whole body. Another that
@@ -176,6 +176,32 @@ with the `invoke` that opened it. A name is path components of
 - A backend that does not keep a session past its `invoke` fails a named one
   with `BackendSessionNotKept`. The `claude` backend keeps them.
 - `session` with `share_session: true` is refused.
+
+`setup` is a closure that builds the session's context: what the agent must
+have read or done before the turns of a body mean anything to it. The daemon
+calls it inside the session before a turn whenever the conversation holds
+none of that context: the session is new, the conversation was compacted,
+by the daemon or by the backend, or it was lost and started over. A kept
+session that was set up is not set up again by the next `invoke`, so a
+workflow writes its setup once and does not ask whether the session is new.
+The setup is the `invoke`'s, not the session's. An `invoke` without one sends
+its turns as they are and leaves the session in need of one, and the next
+`invoke` that brings a setup runs it. An `invoke` that joins a session an
+`invoke` around it holds uses that one's setup unless it brings its own. A
+setup that fails fails the turn it ran before, and the session stays in need
+of one.
+
+A conversation grows with every turn, and each turn reads all of it. Before a
+turn the daemon compacts the session's conversation (the backend replaces it
+with a summary) in two cases: its size is past `[session] context_limit`, or
+it is past `[session] cold_compact_floor` and the backend's cache of it has
+expired, so the turn would read all of it at full price. The size is what the
+last turn's final request carried in; a backend that reports none is not
+compacted. `compact: false` makes a session the daemon never compacts, and
+like `model` it is the session's: a kept session keeps the one it was made
+with. The daemon logs `session.compacted` with the reason, `limit` or `cold`.
+A backend that cannot compact fails the turn with `BackendCompactionUnavailable`.
+The `claude` backend compacts, and its cache stands for an hour.
 
 `forge session list`, `show` and `delete` read and drop what the daemon keeps.
 

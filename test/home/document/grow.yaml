@@ -1,0 +1,17 @@
+# A named session past the context limit: one agent turn in the session
+# `e2e/grown`, which reports a conversation larger than the daemon lets one
+# grow, so a later run compacts it before its turn.
+uses: [Forge]
+procedures:
+  main:
+    access: public
+    returns: String
+    failing: anything
+    result:
+      call:
+        procedure: invoke
+        arguments:
+          model: claude
+          session: e2e/grown
+          env_extra: { dictionary: { AGENT_STUB_CONTEXT_TOKENS: "300000" } }
+          body: { closure: { returns: String, result: { call: { procedure: agent, arguments: { prompt: grow } } } } }
