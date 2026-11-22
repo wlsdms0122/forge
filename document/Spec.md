@@ -129,7 +129,7 @@ is refused before the text is read, and no catch takes it.
 
 ### `Forge.invoke`
 
-`invoke(model: String?, allowed: Array<Any>?, env_extra: Dictionary<String, String>, cwd: String?, permission_mode: String?, share_session: Bool, timeout: Double?, body: () throws -> some Result) -> some Result`,
+`invoke(model: String?, allowed: Array<Any>?, env_extra: Dictionary<String, String>, cwd: String?, permission_mode: String?, share_session: Bool, session: String?, timeout: Double?, body: () throws -> some Result) -> some Result`,
 failing anything. `env_extra` defaults to an empty dictionary and `share_session` to
 `false`.
 
@@ -146,8 +146,38 @@ setting stands, and `[]` exposes none. A name is `files.read`, `files.write`,
 `permission_mode` is `bypass`, `safe` or `restrict`, and any other value fails
 with `AgentValidationError`. `cwd` and `permission_mode` left out are
 unset; an empty string is refused. `share_session: true` reuses the session of
-an enclosing `invoke` where there is one. A session still open after `timeout`
-seconds fails with `timeout`.
+an enclosing `invoke` where there is one. An `invoke` still running after
+`timeout` seconds fails with `timeout`.
+
+`session` names a session kept past the `invoke`. Left out, the session ends
+with the `invoke` that opened it. A name is path components of
+`[A-Za-z0-9._-]`, none starting with a dot or ending in `.json`, joined by `/`
+(`slack/C123/1700000000.000100`), and whoever knows a name may use it.
+
+- Where no session of that name is kept, the `invoke` makes one from its own
+  settings. Where one is, the `invoke` continues its conversation, in this
+  run or another, before or after a daemon restart, and the workflow does not
+  tell the two apart.
+- `model`, `allowed` and `permission_mode` are the session's: a kept session
+  runs with the ones it was made with, and a later `invoke`'s are not read,
+  as with `share_session`. `cwd` and `env_extra` are each `invoke`'s own.
+- One `invoke` holds a session at a time, for its whole body. Another that
+  names it waits in the order it came, holding no step slot, and its
+  `timeout` counts the wait. An `invoke` inside a body that already holds the
+  name joins it, and none of its settings are read, as with `share_session`.
+  A piece of a fan-out inherits no session, so pieces that name one session
+  take it in turn. A piece that names a session an `invoke` around the
+  fan-out holds is refused: that `invoke` waits for the piece.
+- Spellings that differ only in case are one name, kept in lowercase.
+- The conversation is the backend's. Where the backend no longer has it when
+  an `invoke` takes the session up, the name starts a new conversation with
+  the settings it was made with, and the daemon logs `session.lost`. A
+  conversation lost after a turn of the `invoke` fails the turn.
+- A backend that does not keep a session past its `invoke` fails a named one
+  with `BackendSessionNotKept`. The `claude` backend keeps them.
+- `session` with `share_session: true` is refused.
+
+`forge session list`, `show` and `delete` read and drop what the daemon keeps.
 
 ```yaml
 - let: answer
