@@ -57,6 +57,8 @@ struct ServeCommand: AsyncParsableCommand {
                         tokens, past which a session is compacted before its next turn.
                         cold_compact_floor (default 80000): the same once the
                         backend's cache of the conversation has expired.
+                        retention_days (default 7): how long a session no invoke
+                        uses is kept.
                 [provider.<name>]   configured backends; `kind` = \(BackendKind.allCases.map(\.rawValue).joined(separator: "|")).
                         CLI kinds take `executable` (default: the CLI on PATH);
                         openai-compat requires `endpoint`. A provider without a known
