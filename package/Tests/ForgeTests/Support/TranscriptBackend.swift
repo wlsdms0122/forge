@@ -10,7 +10,8 @@ import Foundation
 
 // A backend that keeps each conversation's prompts under the session's id, the
 // way a backend with resumable sessions does. A turn replies with the prompts
-// the conversation has seen so far, joined by a comma.
+// the conversation has seen so far, joined by a comma, and reports a
+// conversation of a thousand tokens a prompt.
 final class TranscriptBackend: Backend, @unchecked Sendable {
     final class Session: BackendSession, Sendable {
         // MARK: - Property
@@ -55,7 +56,11 @@ final class TranscriptBackend: Backend, @unchecked Sendable {
             return transcripts[session.id] ?? []
         }
         
-        return BackendResponse(text: prompts.joined(separator: ","), durationMs: 1)
+        return BackendResponse(
+            text: prompts.joined(separator: ","),
+            durationMs: 1,
+            contextTokens: prompts.count * 1000
+        )
     }
     
     func openSession() -> any BackendSession {
