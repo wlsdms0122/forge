@@ -74,6 +74,7 @@ struct ConfigLoaderTests {
         // Then
         #expect(configuration.session.contextLimit == 120_000)
         #expect(configuration.session.coldCompactFloor == 80_000)
+        #expect(configuration.session.retentionDays == 7)
     }
     
     @Test("With no configuration, convention defaults take effect")
@@ -209,7 +210,7 @@ struct ConfigLoaderTests {
         arguments: [
             ("[directory]\nroot = \"doc\"", "config [directory]: unknown key 'root'; known keys: policy, working"),
             ("[pool]\nmaximum = 3\nsteps = 2", "config [pool]: unknown keys 'maximum', 'steps'"),
-            ("[session]\nlimit = 3", "config [session]: unknown key 'limit'; known keys: cold_compact_floor, context_limit"),
+            ("[session]\nlimit = 3", "config [session]: unknown key 'limit'; known keys: cold_compact_floor, context_limit, retention_days"),
             ("[service.bot]\ncommand = [\"x\"]\ncwd = \"/\"", "config [service.bot]: unknown key 'cwd'"),
             ("[logs]\njsonl = \"x\"", "config top level: unknown key 'logs'")
         ]
