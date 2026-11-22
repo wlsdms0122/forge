@@ -110,6 +110,23 @@ actor SessionStore {
         removeEmptyDirectories(above: file)
     }
     
+    // Drops every session last used before the moment, and returns their
+    // names. A session an invoke holds is in use whatever its record says.
+    func expire(before moment: Date) -> [SessionName] {
+        names().filter { name in
+            guard
+                lines[name] == nil,
+                let record = try? record(name),
+                let usedAt = ISO8601.parse(record.usedAt),
+                usedAt < moment
+            else {
+                return false
+            }
+            
+            return (try? delete(name)) != nil
+        }
+    }
+    
     func entry(_ name: SessionName) throws -> SessionEntry {
         guard let record = try record(name) else { throw SessionStoreError.notFound(name.rawValue) }
         

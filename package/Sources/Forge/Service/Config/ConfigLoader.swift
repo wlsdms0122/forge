@@ -78,6 +78,7 @@ enum ConfigLoader {
         // MARK: - Property
         var contextLimit: Int?
         var coldCompactFloor: Int?
+        var retentionDays: Int?
         
         // MARK: - Initializer
         // MARK: - Public
@@ -304,6 +305,22 @@ enum ConfigLoader {
             )
         )
         
+        let retentionDaysSource = resolveInt(
+            toml: fromFile.session.retentionDays,
+            environmentName: "FORGE_SESSION_RETENTION_DAYS",
+            environment: environment,
+            valid: { value in value > 0 },
+            builtin: ForgeConfig.SessionConfig().retentionDays
+        ).source
+        
+        entries.append(
+            .init(
+                key: "session.retention_days",
+                value: String(config.session.retentionDays),
+                source: retentionDaysSource
+            )
+        )
+        
         return (config, ConfigReport(tomlPath: tomlURL?.path, entries: entries))
     }
     
@@ -350,10 +367,11 @@ enum ConfigLoader {
         }
         
         if let session = try file.table("session") {
-            try session.admit(["context_limit", "cold_compact_floor"])
+            try session.admit(["context_limit", "cold_compact_floor", "retention_days"])
             
             partial.session.contextLimit = try session.int("context_limit")
             partial.session.coldCompactFloor = try session.int("cold_compact_floor")
+            partial.session.retentionDays = try session.int("retention_days")
         }
         
         if let providers = try file.table("provider") {
@@ -452,6 +470,13 @@ enum ConfigLoader {
                 environment: environment,
                 valid: { value in value > 0 },
                 builtin: defaultSession.coldCompactFloor
+            ).value,
+            retentionDays: resolveInt(
+                toml: file.session.retentionDays,
+                environmentName: "FORGE_SESSION_RETENTION_DAYS",
+                environment: environment,
+                valid: { value in value > 0 },
+                builtin: defaultSession.retentionDays
             ).value
         )
         

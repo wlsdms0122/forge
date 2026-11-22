@@ -174,8 +174,31 @@ struct SessionStoreTests {
         await sut.release(try SessionName("line"))
     }
     
+    @Test("expiry drops the sessions last used before the moment, and no session an invoke holds")
+    func expiryDropsSessionsLastUsedBeforeTheMoment() async throws {
+        // Given
+        let sut = SessionStore(directory: try temporary.make("expire"))
+        let old = try SessionName("old/one")
+        let held = try SessionName("held")
+        let recent = try SessionName("recent")
+        
+        try await sut.write(Self.record(turns: 1, usedAt: "2026-11-01T09:00:00Z"), for: old)
+        try await sut.write(Self.record(turns: 1, usedAt: "2026-11-01T09:00:00Z"), for: held)
+        try await sut.write(Self.record(turns: 1, usedAt: "2026-11-20T09:00:00Z"), for: recent)
+        try await sut.acquire(held)
+        
+        // When
+        let expired = await sut.expire(before: try #require(ISO8601.parse("2026-11-15T00:00:00Z")))
+        
+        // Then
+        #expect(expired == [old])
+        #expect(await sut.all().map(\.name) == [held, recent])
+        
+        await sut.release(held)
+    }
+    
     // MARK: - Private
-    private static func record(turns: Int) -> SessionRecord {
+    private static func record(turns: Int, usedAt: String = "2026-11-22T09:05:00Z") -> SessionRecord {
         SessionRecord(
             provider: "claude",
             handle: ["session_id": "S-1", "turn_index": .int(turns)],
@@ -183,7 +206,7 @@ struct SessionStoreTests {
             allowed: ["files.read", ["command": "git *"]],
             permissionMode: "safe",
             createdAt: "2026-11-22T09:00:00Z",
-            usedAt: "2026-11-22T09:05:00Z",
+            usedAt: usedAt,
             turns: turns,
             compact: true
         )

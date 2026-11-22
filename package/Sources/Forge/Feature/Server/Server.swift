@@ -22,6 +22,7 @@ package actor Server {
     let workflowPool: WorkflowPool
     let workflowRunner: WorkflowRunner
     let workflowScheduler: WorkflowScheduler
+    let sessionSweeper: SessionSweeper
     let serviceBus: ServiceBus
     let workRegistry: WorkRegistry
     let serviceSupervisor: ServiceSupervisor
@@ -136,6 +137,10 @@ package actor Server {
         self.workflowPool = pool
         self.workflowRunner = runnerLocal
         self.workflowScheduler = scheduler
+        self.sessionSweeper = SessionSweeper(
+            store: sessionStore,
+            retention: .seconds(config.session.retentionDays * 24 * 3600)
+        )
         self.serviceBus = serviceBus
         self.workRegistry = workRegistryLocal
         
@@ -224,6 +229,7 @@ package actor Server {
         await policyStore.reload()
         await workflowLogger.start()
         await workflowScheduler.start()
+        await sessionSweeper.start()
         
         try await acceptLoop.start()
         
@@ -262,6 +268,7 @@ package actor Server {
         await workflowPool.beginShutdown()
         await serviceSupervisor.stopAll()
         await workflowScheduler.stop()
+        await sessionSweeper.stop()
         
         let leftover = await workflowPool.drain()
         

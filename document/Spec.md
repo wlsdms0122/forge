@@ -203,6 +203,10 @@ with. The daemon logs `session.compacted` with the reason, `limit` or `cold`.
 A backend that cannot compact fails the turn with `BackendCompactionUnavailable`.
 The `claude` backend compacts, and its cache stands for an hour.
 
+A session no `invoke` has used for `[session] retention_days` is dropped, and
+its name then starts a new conversation. A session an `invoke` holds or waits
+for is not dropped.
+
 `forge session list`, `show` and `delete` read and drop what the daemon keeps.
 
 ```yaml

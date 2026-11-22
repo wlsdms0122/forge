@@ -304,6 +304,19 @@ def main():
         check("stub[new:" in fresh and stub_sessions(fresh) != kept,
               "a deleted name starts a new conversation", fresh)
 
+        # Retention: a session unused past the retention is dropped as the
+        # daemon starts.
+        harness.forge("workflow", "dispatch", "remember.yaml")
+        kept_record = os.path.join(harness.root, "forge", "e2e", "state", "sessions", "e2e", "kept.json")
+        with open(kept_record) as file:
+            record = json.load(file)
+        record["used_at"] = "2026-01-01T00:00:00Z"
+        with open(kept_record, "w") as file:
+            json.dump(record, file)
+        harness.restart()
+        check("e2e/kept" not in harness.forge("session", "list"),
+              "a session unused past the retention is dropped", harness.forge("session", "list"))
+
         # Compaction: a session past the context limit is compacted before
         # its next turn, and stays the same conversation.
         grown = stub_sessions(harness.forge("workflow", "dispatch", "grow.yaml"))

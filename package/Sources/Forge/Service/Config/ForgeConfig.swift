@@ -44,11 +44,14 @@ struct ForgeConfig: Sendable {
         // The size past which a session whose cache has expired is compacted
         // before its next turn.
         let coldCompactFloor: Int
+        // The days a session no invoke uses is kept.
+        let retentionDays: Int
         
         // MARK: - Initializer
-        init(contextLimit: Int = 250_000, coldCompactFloor: Int = 80_000) {
+        init(contextLimit: Int = 250_000, coldCompactFloor: Int = 80_000, retentionDays: Int = 7) {
             self.contextLimit = contextLimit
             self.coldCompactFloor = coldCompactFloor
+            self.retentionDays = retentionDays
         }
         
         // MARK: - Public
