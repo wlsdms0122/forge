@@ -110,6 +110,36 @@ struct AgentService: AgentServing {
         }
     }
 
+    func compact(slots: any StepSlotProviding) async throws -> Bool {
+        guard let session = AgentSession.current?.session else {
+            throw AgentSessionMissing(
+                "compact step has no active agent session — run it inside an `invoke`'s"
+                    + " steps (directly, or via dispatch from within one)"
+            )
+        }
+
+        // A conversation no turn has gone into holds nothing to compact.
+        guard session.usedAt != nil else { return false }
+
+        return try await LogContext.childNode {
+            do {
+                try await compact(session, for: .requested, slots: slots)
+            } catch let lost as BackendSessionLost {
+                // As a turn does: only a kept session's first step can find
+                // the conversation gone, and the new one holds nothing yet.
+                guard case let .record(record, name, isConfirmed: false) = session.keeping else {
+                    throw lost.exit
+                }
+
+                try await renew(session, named: name, from: record)
+
+                return false
+            }
+
+            return true
+        }
+    }
+
     // MARK: - Private
     private static func agent(from settings: AgentSessionSettings) throws -> Agent {
         try agent(
@@ -365,6 +395,14 @@ struct AgentService: AgentServing {
     private func compactIfDue(_ session: AgentSession, slots: any StepSlotProviding) async throws {
         guard session.compacts, let reason = compactionReason(for: session) else { return }
 
+        try await compact(session, for: reason, slots: slots)
+    }
+
+    private func compact(
+        _ session: AgentSession,
+        for reason: CompactionReason,
+        slots: any StepSlotProviding
+    ) async throws {
         let result = try await slots.withStepSlot {
             try await logged(in: session) {
                 try await executor.compact(session.handle, agent: session.agent)

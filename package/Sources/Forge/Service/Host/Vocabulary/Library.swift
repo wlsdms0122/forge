@@ -86,6 +86,16 @@ enum Library {
                 procedure: Forge.Native.agent
                 arguments: [ { ref: prompt } ]
         
+          compact:
+            description: Compacts the conversation of the session the enclosing invoke opened, holding a step slot, whatever the session's own compact says. False where the session has had no turn to compact.
+            access: public
+            isolated: true
+            returns: Bool
+            failing: [nonzero_exit]
+            result:
+              call:
+                procedure: Forge.Native.compact
+        
           dispatch:
             description: Runs the workflow at a path as a run of its own, with its own policy check, slot and ledger, and returns the value the workflow returns.
             access: public
@@ -156,6 +166,11 @@ enum Library {
           (isolated)
           (parameter prompt (type String))
           (returns String)
+          (failing nonzero_exit))
+        
+        (procedure Forge.Native.compact
+          (isolated)
+          (returns Bool)
           (failing nonzero_exit))
         
         (procedure Forge.Native.dispatch

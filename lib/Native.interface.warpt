@@ -14,6 +14,11 @@
   (returns String)
   (failing nonzero_exit))
 
+(procedure Forge.Native.compact
+  (isolated)
+  (returns Bool)
+  (failing nonzero_exit))
+
 (procedure Forge.Native.dispatch
   (isolated)
   (parameter path (type String))

@@ -24,4 +24,8 @@ protocol AgentServing: Sendable {
     // a step slot of `slots`; a hook the turn calls for runs holding none,
     // since its own steps take theirs.
     func send(prompt: String, slots: any StepSlotProviding) async throws -> String
+
+    // Compacts the current session's conversation, holding a step slot of
+    // `slots`, and answers whether there was a conversation to compact.
+    func compact(slots: any StepSlotProviding) async throws -> Bool
 }
