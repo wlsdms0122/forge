@@ -61,14 +61,18 @@ enum Library {
               - cwd: { type: String?, hint: "the directory the session works in, the backend's own where left out" }
               - permission_mode: { type: String?, hint: "bypass, safe or restrict, the backend's own where left out" }
               - share_session: { type: Bool, default: false, hint: "reuse the session of an enclosing invoke where there is one" }
-              - timeout: { type: Double?, hint: "seconds before the session fails with timeout" }
+              - session: { type: String?, hint: "the name of a session kept past this invoke, made where there is none; left out, the session ends with the invoke" }
+              - on_session_start: { type: "(() throws -> Null)?", hint: "run inside the session before a turn once the backend has opened it: the session is new, or the conversation a kept one named was gone" }
+              - on_context_start: { type: "(() throws -> Null)?", hint: "what builds the session's context; run inside the session before a turn whenever the conversation holds none of it: the session started, or was compacted since this last ran" }
+              - compact: { type: Forge.Compaction, default: { case: auto }, hint: "when the daemon compacts a kept session as an invoke takes it up: auto past the daemon's sizes, none never, limit past its tokens; the session's own where it already exists" }
+              - timeout: { type: Double?, hint: "seconds before the invoke fails with timeout, the wait for a held session counted" }
               - body: { type: "() throws -> some Result", hint: "the turns the session runs" }
             returns: some Result
             failing: anything
             result:
               call:
                 procedure: Forge.Native.invoke
-                arguments: [ { ref: model }, { ref: allowed }, { ref: env_extra }, { ref: cwd }, { ref: permission_mode }, { ref: share_session }, { ref: timeout }, { ref: body } ]
+                arguments: [ { ref: model }, { ref: allowed }, { ref: env_extra }, { ref: cwd }, { ref: permission_mode }, { ref: share_session }, { ref: session }, { ref: on_session_start }, { ref: on_context_start }, { ref: compact }, { ref: timeout }, { ref: body } ]
         
           agent:
             description: One prompt turn in the session the enclosing invoke opened, holding a step slot, and the reply.
@@ -81,6 +85,16 @@ enum Library {
               call:
                 procedure: Forge.Native.agent
                 arguments: [ { ref: prompt } ]
+        
+          compact:
+            description: Compacts the conversation of the session the enclosing invoke opened, holding a step slot, whatever the session's own compact says. False where the session has had no turn to compact.
+            access: public
+            isolated: true
+            returns: Bool
+            failing: [nonzero_exit]
+            result:
+              call:
+                procedure: Forge.Native.compact
         
           dispatch:
             description: Runs the workflow at a path as a run of its own, with its own policy check, slot and ledger, and returns the value the workflow returns.
@@ -140,6 +154,11 @@ enum Library {
     static let nativeInterface = """
         (interface "0.1")
         
+        (enum Forge.Compaction
+          (case auto)
+          (case limit (field tokens Int))
+          (case none))
+        
         (struct Forge.Origin
           (field id (optional String))
           (field kind String))
@@ -152,6 +171,11 @@ enum Library {
           (isolated)
           (parameter prompt (type String))
           (returns String)
+          (failing nonzero_exit))
+        
+        (procedure Forge.Native.compact
+          (isolated)
+          (returns Bool)
           (failing nonzero_exit))
         
         (procedure Forge.Native.dispatch
@@ -178,6 +202,10 @@ enum Library {
           (parameter cwd (type (optional String)))
           (parameter permission_mode (type (optional String)))
           (parameter share_session (type Bool))
+          (parameter session (type (optional String)))
+          (parameter on_session_start (type (optional (procedure (parameters) (failing (anything)) (returns Null)))))
+          (parameter on_context_start (type (optional (procedure (parameters) (failing (anything)) (returns Null)))))
+          (parameter compact (type Forge.Compaction))
           (parameter timeout (type (optional Double)))
           (parameter body (type (procedure (parameters) (failing (anything)) (returns (some Result)))))
           (returns (some Result))

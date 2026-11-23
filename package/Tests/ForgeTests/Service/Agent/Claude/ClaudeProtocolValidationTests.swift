@@ -147,15 +147,11 @@ struct ClaudeProtocolValidationTests {
         #expect(throws: Never.self) { try ClaudeBackend.validateSuccessfulProtocol(snapshot) }
     }
     
-    @Test("turns with nothing observed are rejected")
-    func validateRejectsATurnWhereNothingWasObserved() throws {
+    @Test("a turn that ends with neither text nor a tool call passes")
+    func validateAcceptsATurnWithNeitherTextNorAToolCall() {
         let reader = StreamJSON.Reader()
         reader.feed(line: #"{"type":"result","result":""}"#, at: .fixture)
-        let error = try #require(throws: (any Error).self) {
-            try ClaudeBackend.validateSuccessfulProtocol(reader.snapshot())
-        }
-        
-        #expect(error is BackendProtocolViolation, "\(error)")
+        #expect(throws: Never.self) { try ClaudeBackend.validateSuccessfulProtocol(reader.snapshot()) }
     }
     
     // MARK: The verdict does not weaken as damage worsens

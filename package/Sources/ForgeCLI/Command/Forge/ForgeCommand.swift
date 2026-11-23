@@ -21,7 +21,7 @@ struct ForgeCommand: AsyncParsableCommand {
                 forge serve   run the daemon: LLM backends, workflow
                               execution, schedules, the ACL gate for every
                               dispatch. long-running.
-                forge workflow / schedule / job / resource /
+                forge workflow / schedule / job / session / resource /
                 forge service / status / policy / token
                               client subcommands. speak line-delimited
                               JSON-RPC over the daemon's Unix socket, the
@@ -82,6 +82,7 @@ struct ForgeCommand: AsyncParsableCommand {
             WorkflowCommand.self,
             ScheduleCommand.self,
             JobCommand.self,
+            SessionCommand.self,
             ResourceCommand.self,
             ServiceCommand.self,
             StatusCommand.self,

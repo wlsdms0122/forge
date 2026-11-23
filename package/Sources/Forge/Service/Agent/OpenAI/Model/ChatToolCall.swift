@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct ChatToolCall: Sendable, Equatable {
+struct ChatToolCall: Sendable, Equatable, Codable {
     // MARK: - Property
     let id: String
     let name: String

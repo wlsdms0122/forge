@@ -780,6 +780,40 @@ struct WorkflowRunnerTests {
         #expect(emptyResult.failure?.object.message.contains("empty string") == true)
     }
 
+    @Test("for invoke, compact takes a case of Forge.Compaction, and a limit of no tokens is an author error")
+    func invokeCompactTakesACaseAndRejectsAnEmptyLimit() async throws {
+        // Given
+        let harness = try makeRunner(
+            workflows: [
+                "limit.yaml": """
+                failing: anything
+                body:
+                  - value:
+                      call:
+                        procedure: invoke
+                        arguments: { model: claude, compact: { case: { limit: { tokens: 300000 } } }, body: { closure: { returns: String, result: { agent: hi } } } }
+                """,
+                "nothing.yaml": """
+                failing: anything
+                body:
+                  - value:
+                      call:
+                        procedure: invoke
+                        arguments: { model: claude, compact: { case: { limit: { tokens: 0 } } }, body: { closure: { returns: String, result: { agent: hi } } } }
+                """
+            ],
+            backend: AgentRecorder()
+        )
+
+        // When
+        let limit = try await harness.dispatch(try await harness.reader.workflow(at: "limit.yaml"))
+        let nothing = try await harness.dispatch(try await harness.reader.workflow(at: "nothing.yaml"))
+
+        // Then
+        #expect(limit.failure == nil)
+        #expect(nothing.failure?.object.message.contains("above 0 tokens") == true)
+    }
+
     @Test("the step slot cap serializes concurrent shell execution")
     func stepSlotsSerializeShells() async throws {
         // Given
@@ -898,9 +932,9 @@ struct WorkflowRunnerTests {
             workRegistry: WorkRegistry(),
             tokenAuthority: TokenAuthority(),
             capabilities: CapabilitySet(
-                shell: LiveShell(),
-                agent: LiveAgent(executor: AgentExecutor(backend: backend ?? EchoBackend())),
-                resources: LiveResources(workingDirectory: WorkingDirectory(directory: nil))
+                shell: ShellExecutor(),
+                agent: AgentService(executor: AgentExecutor(backend: backend ?? EchoBackend())),
+                resources: ResourceReader(workingDirectory: WorkingDirectory(directory: nil))
             )
         )
 

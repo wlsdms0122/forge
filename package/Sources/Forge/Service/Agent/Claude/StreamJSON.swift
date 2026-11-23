@@ -16,9 +16,12 @@ enum StreamJSON {
         private var lastAssistantText = ""
         private var toolEvents: [ToolEvent] = []
         private var usage: StreamUsage?
+        private var usageSinceLastResult: StreamUsage?
         private var byID: [String: Int] = [:]
         private var malformedLineCount = 0
         private var sawTerminalResult = false
+        private var contextTokens: Int?
+        private var sawCompaction = false
         
         // MARK: - Initializer
         init() {
@@ -72,11 +75,46 @@ enum StreamJSON {
                         cacheReadInputTokens: rawUsage["cache_read_input_tokens"] as? Int
                     )
                 }
+                
+                // `usage` leaves out what a subagent's requests and a compaction
+                // cost; the count by model since the last result carries them.
+                let models = object["model_usage_since_last_result"] as? [String: [String: Any]] ?? [:]
+                
+                for counts in models.values {
+                    var sum = usageSinceLastResult ?? StreamUsage()
+                    
+                    sum.inputTokens = (sum.inputTokens ?? 0) + (counts["inputTokens"] as? Int ?? 0)
+                    sum.outputTokens = (sum.outputTokens ?? 0) + (counts["outputTokens"] as? Int ?? 0)
+                    sum.cacheCreationInputTokens = (sum.cacheCreationInputTokens ?? 0)
+                        + (counts["cacheCreationInputTokens"] as? Int ?? 0)
+                    sum.cacheReadInputTokens = (sum.cacheReadInputTokens ?? 0)
+                        + (counts["cacheReadInputTokens"] as? Int ?? 0)
+                    usageSinceLastResult = sum
+                }
+            
+            case "system":
+                // What the requests before the cut read in is not the size of
+                // the conversation after it.
+                if object["subtype"] as? String == "compact_boundary" {
+                    sawCompaction = true
+                    contextTokens = nil
+                }
             
             case "assistant":
                 let message = object["message"] as? [String: Any] ?? [:]
                 let content = message["content"] as? [[String: Any]] ?? []
                 var turnText = ""
+                
+                // Each request reads the whole conversation in, cached or not.
+                // A subagent's request reads its own conversation, and a message
+                // claude wrote without a request read nothing.
+                if object["parent_tool_use_id"] as? String == nil, let usage = message["usage"] as? [String: Any] {
+                    let size = (usage["input_tokens"] as? Int ?? 0)
+                        + (usage["cache_creation_input_tokens"] as? Int ?? 0)
+                        + (usage["cache_read_input_tokens"] as? Int ?? 0)
+                    
+                    if size > 0 { contextTokens = size }
+                }
                 
                 for block in content {
                     let blockType = block["type"] as? String
@@ -165,9 +203,11 @@ enum StreamJSON {
             return StreamParseResult(
                 finalText: finalText,
                 toolEvents: toolEvents,
-                usage: usage,
+                usage: usageSinceLastResult ?? usage,
                 malformedLineCount: malformedLineCount,
-                sawTerminalResult: sawTerminalResult
+                sawTerminalResult: sawTerminalResult,
+                contextTokens: contextTokens,
+                sawCompaction: sawCompaction
             )
         }
         
@@ -199,7 +239,9 @@ enum StreamJSON {
             toolEvents: cleared,
             usage: snapshot.usage,
             malformedLineCount: snapshot.malformedLineCount,
-            sawTerminalResult: snapshot.sawTerminalResult
+            sawTerminalResult: snapshot.sawTerminalResult,
+            contextTokens: snapshot.contextTokens,
+            sawCompaction: snapshot.sawCompaction
         )
     }
     

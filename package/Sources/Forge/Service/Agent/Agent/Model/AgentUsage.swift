@@ -7,7 +7,15 @@
 
 import Foundation
 
-struct AgentUsage: Sendable, Equatable {
+struct AgentUsage: Sendable, Equatable, Codable {
+    enum CodingKeys: String, CodingKey {
+        case inputTokens = "input_tokens"
+        case outputTokens = "output_tokens"
+        case cacheWriteTokens = "cache_write_tokens"
+        case cacheReadTokens = "cache_read_tokens"
+        case reasoningOutputTokens = "reasoning_output_tokens"
+    }
+    
     // MARK: - Property
     let inputTokens: Int?
     let outputTokens: Int?

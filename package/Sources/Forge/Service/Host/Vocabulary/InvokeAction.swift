@@ -20,6 +20,10 @@ struct InvokeAction: ForgeAction {
         case cwd
         case permissionMode
         case shareSession
+        case session
+        case onSessionStart
+        case onContextStart
+        case compact
         case timeout
         case body
 
@@ -43,6 +47,24 @@ struct InvokeAction: ForgeAction {
 
             case .shareSession:
                 Parameter(name: "share_session", type: .bool)
+
+            case .session:
+                Parameter(name: "session", type: .optional(.string))
+
+            case .onSessionStart:
+                Parameter(
+                    name: "on_session_start",
+                    type: .optional(.procedure(ProcedureType(returns: .null, failing: .anything)))
+                )
+
+            case .onContextStart:
+                Parameter(
+                    name: "on_context_start",
+                    type: .optional(.procedure(ProcedureType(returns: .null, failing: .anything)))
+                )
+
+            case .compact:
+                Parameter(name: "compact", type: .named(ForgeVocabulary.compactionType))
 
             case .timeout:
                 Parameter(name: "timeout", type: .optional(.double))
@@ -81,17 +103,57 @@ struct InvokeAction: ForgeAction {
             cwd: try Self.nonEmpty(invocation.string(.cwd), field: "cwd"),
             permissionMode: try Self.nonEmpty(invocation.string(.permissionMode), field: "permission_mode"),
             envExtra: try ValueBridge.strings(invocation[.envExtra]),
-            shareSession: invocation[.shareSession] == .bool(true)
+            shareSession: invocation[.shareSession] == .bool(true),
+            session: try Self.nonEmpty(invocation.string(.session), field: "session").map(SessionName.init),
+            compact: try Self.compaction(invocation[.compact])
+        )
+
+        // Both say which session the body speaks through, so they cannot both stand.
+        guard !(settings.shareSession && settings.session != nil) else {
+            throw RunRefused("invoke: session and share_session: true cannot be given together")
+        }
+
+        let lifecycle = AgentSessionLifecycle(
+            onSessionStart: Self.hook(.onSessionStart, of: invocation),
+            onContextStart: Self.hook(.onContextStart, of: invocation)
         )
 
         return try await Deadline(seconds: ValueBridge.number(invocation[.timeout])).run {
-            try await environment.capabilities.agent.withSession(settings) {
+            try await environment.capabilities.agent.withSession(settings, lifecycle: lifecycle) {
                 try await invocation.call(body)
             }
         }
     }
 
     // MARK: - Private
+    private static func hook(
+        _ parameter: Parameters,
+        of invocation: Invocation<Self>
+    ) -> AgentSessionLifecycle.Hook? {
+        guard case let .procedure(procedure) = invocation[parameter] else { return nil }
+
+        return { _ = try await invocation.call(procedure) }
+    }
+
+    private static func compaction(_ value: Warp.Value) throws -> CompactionPolicy {
+        guard case let .struct(compaction) = value else {
+            throw RunRefused("invoke: compact is no case of \(ForgeVocabulary.compactionType)")
+        }
+
+        // A value of an enum carries its case's spelling.
+        let auto: Warp.Name = "Forge.Compaction.auto"
+        let none: Warp.Name = "Forge.Compaction.none"
+
+        if compaction.name == auto { return .automatic }
+        if compaction.name == none { return .none }
+
+        guard case let .int(tokens)? = compaction.values.first, tokens > 0 else {
+            throw RunRefused("invoke: compact's limit must be above 0 tokens")
+        }
+
+        return .limit(tokens)
+    }
+
     // null means "unset" and stays nil, and the signature holds the rest to a list.
     private static func items(_ value: Warp.Value) -> [Warp.Value]? {
         guard case let .array(items) = value else { return nil }
@@ -100,7 +162,7 @@ struct InvokeAction: ForgeAction {
     }
 
     // null means "unset" and stays nil; an empty string is an author mistake, not
-    // a quiet fallback into the daemon's own working directory.
+    // a quiet fallback into what unset means.
     private static func nonEmpty(_ string: String?, field: String) throws -> String? {
         guard string != "" else {
             throw RunRefused(

@@ -33,8 +33,8 @@ struct ServeCommand: AsyncParsableCommand {
                 One file is read: the --config file, or else
                 <instanceHome>/config.toml. A value in that file wins over
                 FORGE_* env, which wins over defaults; env fills only a key the
-                file leaves unset (or, for a [pool] key, sets to a number that
-                is not positive).
+                file leaves unset (or, for a [pool] or [session] key, sets to a
+                number that is not positive).
                 A --config path with no file behind it fails serve; with no
                 --config, <instanceHome>/config.toml is read if it is there.
                 PATH ANCHORING: a relative path written in the toml resolves
@@ -53,6 +53,12 @@ struct ServeCommand: AsyncParsableCommand {
                         `<instanceHome>/log`.
                 [pool]  maximum_concurrent_steps (default 4): leaf-step concurrency cap.
                         maximum_active_runs (default 256): concurrent registered-run cap.
+                [session]  context_limit (default 250000): the conversation size, in
+                        tokens, past which a session is compacted before its next turn.
+                        cold_compact_floor (default 80000): the same once the
+                        backend's cache of the conversation has expired.
+                        retention_days (default 7): how long a session no invoke
+                        uses is kept.
                 [provider.<name>]   configured backends; `kind` = \(BackendKind.allCases.map(\.rawValue).joined(separator: "|")).
                         CLI kinds take `executable` (default: the CLI on PATH);
                         openai-compat requires `endpoint`. A provider without a known
@@ -78,8 +84,9 @@ struct ServeCommand: AsyncParsableCommand {
                                                down/crashed-daemon diagnostic
                                                (clients discover via instance, not this).
                 <state_directory>/             what outlives a restart: jobs,
-                                               schedules, service pid files and
-                                               logs, the fire and enabled ledgers.
+                                               schedules, named agent sessions,
+                                               service pid files and logs, the
+                                               fire and enabled ledgers.
                 <log_jsonl>                    structured JSONL event log.
                 <error_log>                    stderr / traceback log.
 

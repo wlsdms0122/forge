@@ -1,5 +1,10 @@
 (interface "0.1")
 
+(enum Forge.Compaction
+  (case auto)
+  (case limit (field tokens Int))
+  (case none))
+
 (struct Forge.Origin
   (field id (optional String))
   (field kind String))
@@ -12,6 +17,11 @@
   (isolated)
   (parameter prompt (type String))
   (returns String)
+  (failing nonzero_exit))
+
+(procedure Forge.Native.compact
+  (isolated)
+  (returns Bool)
   (failing nonzero_exit))
 
 (procedure Forge.Native.dispatch
@@ -38,6 +48,10 @@
   (parameter cwd (type (optional String)))
   (parameter permission_mode (type (optional String)))
   (parameter share_session (type Bool))
+  (parameter session (type (optional String)))
+  (parameter on_session_start (type (optional (procedure (parameters) (failing (anything)) (returns Null)))))
+  (parameter on_context_start (type (optional (procedure (parameters) (failing (anything)) (returns Null)))))
+  (parameter compact (type Forge.Compaction))
   (parameter timeout (type (optional Double)))
   (parameter body (type (procedure (parameters) (failing (anything)) (returns (some Result)))))
   (returns (some Result))

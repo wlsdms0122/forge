@@ -36,6 +36,28 @@ struct ForgeConfig: Sendable {
         // MARK: - Private
     }
     
+    struct SessionConfig: Sendable {
+        // MARK: - Property
+        // The conversation size, in tokens, past which a session is compacted
+        // before its next turn.
+        let contextLimit: Int
+        // The size past which a session whose cache has expired is compacted
+        // before its next turn.
+        let coldCompactFloor: Int
+        // The days a session no invoke uses is kept.
+        let retentionDays: Int
+        
+        // MARK: - Initializer
+        init(contextLimit: Int = 250_000, coldCompactFloor: Int = 80_000, retentionDays: Int = 7) {
+            self.contextLimit = contextLimit
+            self.coldCompactFloor = coldCompactFloor
+            self.retentionDays = retentionDays
+        }
+        
+        // MARK: - Public
+        // MARK: - Private
+    }
+    
     // MARK: - Property
     let stateDirectory: URL
     let logJSONL: URL
@@ -47,6 +69,7 @@ struct ForgeConfig: Sendable {
     let services: [ServiceConfig]
     let hooks: HookToggles
     let pool: PoolConfig
+    let session: SessionConfig
     
     // MARK: - Initializer
     init(
@@ -59,7 +82,8 @@ struct ForgeConfig: Sendable {
         policyDirectory: URL? = nil,
         services: [ServiceConfig] = [],
         hooks: HookToggles = HookToggles(),
-        pool: PoolConfig = PoolConfig()
+        pool: PoolConfig = PoolConfig(),
+        session: SessionConfig = SessionConfig()
     ) {
         self.stateDirectory = stateDirectory
         self.logJSONL = logJSONL
@@ -71,6 +95,7 @@ struct ForgeConfig: Sendable {
         self.services = services
         self.hooks = hooks
         self.pool = pool
+        self.session = session
     }
     
     // MARK: - Public

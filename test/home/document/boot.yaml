@@ -1,0 +1,26 @@
+# A named session with both hooks: the session `e2e/booted` starts with one
+# agent turn and its context with another before the first turn of the body,
+# and a later run that finds both done sends only its own turn.
+uses: [Forge]
+procedures:
+  main:
+    access: public
+    returns: String
+    failing: anything
+    result:
+      call:
+        procedure: invoke
+        arguments:
+          model: claude
+          session: e2e/booted
+          on_session_start:
+            closure:
+              body:
+                - let: greeted
+                  value: { call: { procedure: agent, arguments: { prompt: greet } } }
+          on_context_start:
+            closure:
+              body:
+                - let: booted
+                  value: { call: { procedure: agent, arguments: { prompt: boot } } }
+          body: { closure: { returns: String, result: { call: { procedure: agent, arguments: { prompt: work } } } } }

@@ -1,0 +1,22 @@
+# A compaction the workflow asks for: the session `e2e/asked` is made with
+# compact none, takes one turn, and is compacted by a `compact` step.
+uses: [Forge]
+procedures:
+  main:
+    access: public
+    returns: Bool
+    failing: anything
+    result:
+      call:
+        procedure: invoke
+        arguments:
+          model: claude
+          session: e2e/asked
+          compact: { case: none }
+          body:
+            closure:
+              returns: Bool
+              body:
+                - let: said
+                  value: { call: { procedure: agent, arguments: { prompt: work } } }
+              result: { call: { procedure: compact } }

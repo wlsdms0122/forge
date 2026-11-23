@@ -129,9 +129,9 @@ is refused before the text is read, and no catch takes it.
 
 ### `Forge.invoke`
 
-`invoke(model: String?, allowed: Array<Any>?, env_extra: Dictionary<String, String>, cwd: String?, permission_mode: String?, share_session: Bool, timeout: Double?, body: () throws -> some Result) -> some Result`,
-failing anything. `env_extra` defaults to an empty dictionary and `share_session` to
-`false`.
+`invoke(model: String?, allowed: Array<Any>?, env_extra: Dictionary<String, String>, cwd: String?, permission_mode: String?, share_session: Bool, session: String?, on_session_start: (() throws -> Null)?, on_context_start: (() throws -> Null)?, compact: Forge.Compaction, timeout: Double?, body: () throws -> some Result) -> some Result`,
+failing anything. `env_extra` defaults to an empty dictionary, `share_session` to
+`false` and `compact` to `true`.
 
 Opens an agent session with these settings and calls `body` inside it; what
 the body returns is what `invoke` returns, so the body writes its `returns`.
@@ -146,8 +146,96 @@ setting stands, and `[]` exposes none. A name is `files.read`, `files.write`,
 `permission_mode` is `bypass`, `safe` or `restrict`, and any other value fails
 with `AgentValidationError`. `cwd` and `permission_mode` left out are
 unset; an empty string is refused. `share_session: true` reuses the session of
-an enclosing `invoke` where there is one. A session still open after `timeout`
-seconds fails with `timeout`.
+an enclosing `invoke` where there is one. An `invoke` still running after
+`timeout` seconds fails with `timeout`.
+
+`session` names a session kept past the `invoke`. Left out, the session ends
+with the `invoke` that opened it. A name is path components of
+`[A-Za-z0-9._-]`, none starting with a dot or ending in `.json`, joined by `/`
+(`slack/C123/1700000000.000100`), and whoever knows a name may use it.
+
+- Where no session of that name is kept, the `invoke` makes one from its own
+  settings. Where one is, the `invoke` continues its conversation, in this
+  run or another, before or after a daemon restart, and the workflow does not
+  tell the two apart.
+- `model`, `allowed`, `permission_mode` and `compact` are the session's: a kept session
+  runs with the ones it was made with, and a later `invoke`'s are not read,
+  as with `share_session`. `cwd` and `env_extra` are each `invoke`'s own.
+- One `invoke` holds a session at a time, for its whole body. Another that
+  names it waits in the order it came, holding no step slot, and its
+  `timeout` counts the wait. An `invoke` inside a body that already holds the
+  name joins it, and none of its settings are read, as with `share_session`.
+  A piece of a fan-out inherits no session, so pieces that name one session
+  take it in turn. A piece that names a session an `invoke` around the
+  fan-out holds is refused: that `invoke` waits for the piece.
+- Spellings that differ only in case are one name, kept in lowercase.
+- The conversation is the backend's. Where the backend no longer has it when
+  an `invoke` takes the session up, the name starts a new conversation with
+  the settings it was made with, and the daemon logs `session.lost`. A
+  conversation lost after a turn of the `invoke` fails the turn.
+- A backend that does not keep a session past its `invoke` fails a named one
+  with `BackendSessionNotKept`. The `claude` and `codex` backends keep them
+  by the conversation's id, and an OpenAI-compatible one keeps the whole
+  conversation in the session's record.
+- `session` with `share_session: true` is refused.
+
+A session's life has two events the body of an `invoke` cannot see, and an
+`invoke` may bring a closure, a hook, for each. The daemon calls a hook
+inside the session, before a turn, once its event has happened and no hook
+has run for it since.
+
+- `on_session_start`: the backend opened the session. The session is new,
+  with a name or without, or the conversation a kept one named was gone and
+  it started over.
+- `on_context_start`: the conversation holds none of the context the hook
+  builds, what the agent must have read or done before the turns of a body
+  mean anything to it. The session started, or the conversation was
+  compacted, by the daemon or by a turn.
+
+Where both are due `on_session_start` runs first. A kept session whose hooks
+ran does not run them again on the next `invoke`, so a workflow writes them
+once and does not ask whether the session is new. The hooks are the
+`invoke`'s, not the session's. An `invoke` without one for an event sends its
+turns as they are and leaves the event due, and the next `invoke` that
+brings one runs it. An `invoke` that joins a session an `invoke` around it
+holds uses that one's hooks where it brings none of its own. A hook that
+fails fails the turn it ran before, and its event stays due. The turns a
+hook sends call for no hook.
+
+A conversation grows with every turn, and each turn reads all of it. As an
+`invoke` takes up a kept session, before its first turn, the daemon compacts
+the conversation (the backend replaces it with a summary) in two cases: its
+size is past `[session] context_limit`, or it is past
+`[session] cold_compact_floor` and the backend's cache of it has expired, so
+the turn would read all of it at full price. The size is what the last
+turn's final request carried in; a backend that reports none is not
+compacted. The turns of one `invoke` stand on one another, so the daemon
+leaves the conversation whole between them: a session without a name, which
+ends with its `invoke`, is never compacted by the daemon, and a body that
+grows a conversation calls the `compact` step where it can lose the turns
+before. `compact` says when the daemon compacts the session, a case of the enum
+`Forge.Compaction`: `{ case: auto }` (the default) at the daemon's sizes,
+`{ case: none }` never, or `{ case: { limit: { tokens: 300000 } } }` past a
+size of its own in place of `context_limit`. Like `model` it is the
+session's: a kept session keeps the one it was made with. A turn can compact the conversation too: the backend
+on reaching its own limit, or the prompt the turn carried (`/compact` to
+`claude`), and such a turn may end with no text. The daemon logs `session.compacted` with the
+reason: `limit`, `cold`, `turn` for one a turn did, or `requested` for one a
+`compact` step asked for.
+A backend that cannot compact fails the turn with `BackendCompactionUnavailable`.
+The `claude` backend compacts its own conversation, and its cache stands for
+an hour. A `codex` or OpenAI-compatible conversation is compacted by a turn
+that asks it for a summary of itself, and the summary opens the conversation
+that takes its place. An OpenAI-compatible backend reports a size where its
+endpoint counts the request. The `codex` backend reads the size from the
+rollout file codex keeps for the thread under `CODEX_HOME` (`~/.codex` where
+unset), and reports none where it finds no such file.
+
+A session no `invoke` has used for `[session] retention_days` is dropped, and
+its name then starts a new conversation. A session an `invoke` holds or waits
+for is not dropped.
+
+`forge session list`, `show` and `delete` read and drop what the daemon keeps.
 
 ```yaml
 - let: answer
@@ -168,6 +256,19 @@ slot. Outside a session it is refused. A piece of a fan-out speaks to no
 session it did not open. A turn its backend refuses (a nonzero exit of the
 agent's CLI, an HTTP error below 500) fails with `nonzero_exit`, whose details
 are `exit_code`, `stderr` and `stdout`.
+
+### `Forge.compact`
+
+`compact() -> Bool`, failing `nonzero_exit`.
+
+Compacts the conversation of the session the enclosing `invoke` opened,
+holding a step slot, whatever the session's `compact` says: it is how a
+workflow compacts a session it made with `compact: { case: none }`, or between the
+turns of one `invoke`. `true` once the
+conversation was compacted, and `false` where there was none to compact: no
+turn has gone into the session yet. Outside a session it is refused. The
+compaction is logged as `session.compacted` with the reason `requested`, and
+`on_context_start` is due after it as after any compaction.
 
 ### `Forge.dispatch`
 

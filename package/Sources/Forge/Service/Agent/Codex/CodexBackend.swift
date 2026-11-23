@@ -9,6 +9,9 @@ import Foundation
 
 struct CodexBackend: Backend {
     // MARK: - Property
+    // What codex says of a resume whose thread it has no record of.
+    private static let missingThread = "no rollout found for thread id"
+    
     let executable: String
     let translator: CodexTranslator
     
@@ -68,6 +71,58 @@ struct CodexBackend: Backend {
     
     func openSession() -> any BackendSession { CodexSession() }
     
+    func record(of session: any BackendSession) throws -> JSONValue {
+        guard let session = session as? CodexSession else {
+            throw BackendSessionNotKept("the session is not one codex opened")
+        }
+        
+        return try JSONValue(
+            encoding: CodexSessionRecord(
+                threadIdentifier: session.threadIdentifier,
+                turnIndex: session.turnIndex,
+                usage: session.cumulativeUsage,
+                summary: session.summary,
+                rolloutPath: session.rolloutPath
+            )
+        )
+    }
+    
+    func session(from record: JSONValue) throws -> any BackendSession {
+        guard let record: CodexSessionRecord = try? record.decoded() else {
+            throw BackendSessionNotKept("the record does not name a codex session")
+        }
+        
+        return CodexSession(
+            threadIdentifier: record.threadIdentifier,
+            turnIndex: record.turnIndex,
+            cumulativeUsage: record.usage,
+            summary: record.summary,
+            rolloutPath: record.rolloutPath
+        )
+    }
+    
+    // Codex keeps the conversation in the thread, so the summary goes into a
+    // thread of its own: the next turn starts one.
+    func compact(
+        _ session: any BackendSession,
+        turn: @Sendable (String) async throws -> BackendResponse
+    ) async throws -> BackendResponse {
+        guard let session = session as? CodexSession else {
+            throw BackendCompactionUnavailable("the session is not one codex opened")
+        }
+        
+        session.isSummarizing = true
+        
+        defer { session.isSummarizing = false }
+        
+        return try await SummaryCompaction().compact(turn: turn) { summary in
+            session.threadIdentifier = nil
+            session.cumulativeUsage = nil
+            session.rolloutPath = nil
+            session.summary = summary
+        }
+    }
+    
     func invoke(_ invocation: AgentInvocation) async throws -> BackendResponse {
         let translated = try translator.translate(invocation.agent)
         let native = translated.value
@@ -80,11 +135,12 @@ struct CodexBackend: Backend {
         
         let session = invocation.session as? CodexSession
         let baseIndex = session?.turnIndex ?? 0
+        // A summary is a reading of what is already there, and the turn that
+        // writes one is the wait a compaction costs.
         let agentArguments = translator.agentArguments(configuration: native)
-        let arguments = Self.arguments(
-            agentArguments: agentArguments,
-            resume: session?.threadIdentifier
-        )
+            + (session?.isSummarizing == true ? ["-c", "model_reasoning_effort=\"low\""] : [])
+        let resumed = session?.threadIdentifier
+        let arguments = Self.arguments(agentArguments: agentArguments, resume: resumed)
         let modelLabel = invocation.agent.model?.displayName
         let eventLogContext = AgentEventLogContext.current
         let reader = CodexEventStream.Reader()
@@ -100,7 +156,9 @@ struct CodexBackend: Backend {
                 args: arguments,
                 cwd: native.workingDirectory,
                 envExtra: native.environment,
-                stdin: invocation.prompt,
+                stdin: session?.summary.map { summary in
+                    SummaryCompaction().opening(invocation.prompt, after: summary)
+                } ?? invocation.prompt,
                 onStdoutLine: { frame, at in reader.feed(frame: frame, at: at) }
             )
         } catch {
@@ -117,8 +175,12 @@ struct CodexBackend: Backend {
         
         let streamed = reader.snapshot()
         
+        // A thread that started took the prompt, and the summary with it.
         if let threadIdentifier = streamed.threadIdentifier {
+            if session?.threadIdentifier != threadIdentifier { session?.rolloutPath = nil }
+            
             session?.threadIdentifier = threadIdentifier
+            session?.summary = nil
         }
         
         let parsed = streamed
@@ -136,12 +198,21 @@ struct CodexBackend: Backend {
             let detail = parsed.failure
                 ?? Self.failureDetail(stderr: result.stderr, stdout: result.stdout)
             
-            throw BackendNonzeroExit(
+            let exit = BackendNonzeroExit(
                 "codex exit \(result.exitCode) (turn \(baseIndex)): \(detail)",
                 exitCode: result.exitCode,
                 stderr: result.stderr,
                 stdout: result.stdout
             )
+            
+            if let resumed, result.stderr.contains(Self.missingThread) {
+                throw BackendSessionLost(
+                    "codex has no thread \(resumed) (turn \(baseIndex))",
+                    exit: exit
+                )
+            }
+            
+            throw exit
         }
         
         try Self.validateSuccessfulProtocol(parsed)
@@ -155,12 +226,26 @@ struct CodexBackend: Backend {
             return baseline.map { baseline in total.subtracting(baseline) } ?? total
         }
         
+        let rollout = CodexRollout(
+            environment: ProcessInfo.processInfo.environment
+                .merging(native.environment) { _, override in override }
+        )
+        
+        // The sessions of every thread are searched once for the file.
+        let file = session?.rolloutPath
+            .map { path in URL(fileURLWithPath: path) }
+            .flatMap { file in FileManager.default.fileExists(atPath: file.path) ? file : nil }
+            ?? parsed.threadIdentifier.flatMap(rollout.file(of:))
+        
+        session?.rolloutPath = file?.path
+        
         return BackendResponse(
             text: parsed.finalText,
             usage: turnUsage,
             toolEvents: observedToolEvents,
             stdoutLength: result.stdout.count,
-            durationMs: (ContinuousClock.now - started).milliseconds
+            durationMs: (ContinuousClock.now - started).milliseconds,
+            contextTokens: file.flatMap(rollout.contextTokens(in:))
         )
     }
     

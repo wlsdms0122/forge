@@ -90,9 +90,9 @@ struct SchedulerFixture {
             workRegistry: WorkRegistry(),
             tokenAuthority: TokenAuthority(),
             capabilities: CapabilitySet(
-                shell: LiveShell(),
-                agent: LiveAgent(executor: AgentExecutor(backend: StubBackend("noop"))),
-                resources: LiveResources(workingDirectory: WorkingDirectory(directory: nil))
+                shell: ShellExecutor(),
+                agent: AgentService(executor: AgentExecutor(backend: StubBackend("noop"))),
+                resources: ResourceReader(workingDirectory: WorkingDirectory(directory: nil))
             )
         )
     }

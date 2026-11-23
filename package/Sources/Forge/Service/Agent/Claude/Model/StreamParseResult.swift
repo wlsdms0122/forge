@@ -14,6 +14,10 @@ struct StreamParseResult: Sendable, Equatable {
     var usage: StreamUsage?
     var malformedLineCount: Int = 0
     var sawTerminalResult: Bool = false
+    // What the last request of the turn carried in: the conversation's size as the turn ended.
+    var contextTokens: Int?
+    // Whether the conversation was compacted during the turn.
+    var sawCompaction: Bool = false
 
     // MARK: - Initializer
     // MARK: - Public

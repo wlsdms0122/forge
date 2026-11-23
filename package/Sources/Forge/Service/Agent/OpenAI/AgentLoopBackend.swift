@@ -104,6 +104,42 @@ struct AgentLoopBackend: Backend {
         AgentLoopSession()
     }
     
+    // The conversation is the message list, so the record holds all of it.
+    func record(of session: any BackendSession) throws -> JSONValue {
+        guard let session = session as? AgentLoopSession else {
+            throw BackendSessionNotKept("the session is not one this backend opened")
+        }
+        
+        return ["messages": try JSONValue(encoding: session.messages)]
+    }
+    
+    func session(from record: JSONValue) throws -> any BackendSession {
+        guard let messages: [ChatMessage] = try? record["messages"]?.decoded() else {
+            throw BackendSessionNotKept("the record does not hold a conversation's messages")
+        }
+        
+        return AgentLoopSession(messages: messages)
+    }
+    
+    func compact(
+        _ session: any BackendSession,
+        turn: @Sendable (String) async throws -> BackendResponse
+    ) async throws -> BackendResponse {
+        guard let session = session as? AgentLoopSession else {
+            throw BackendCompactionUnavailable("the session is not one this backend opened")
+        }
+        
+        let compaction = SummaryCompaction()
+        
+        // The request and its answer stay as the new conversation's first exchange.
+        return try await compaction.compact(turn: turn) { summary in
+            session.messages = [
+                ChatMessage(role: .user, content: compaction.request),
+                ChatMessage(role: .assistant, content: summary)
+            ]
+        }
+    }
+    
     func invoke(_ invocation: AgentInvocation) async throws -> BackendResponse {
         let translated = try translator.translate(invocation.agent)
         let native = translated.value
@@ -187,7 +223,8 @@ struct AgentLoopBackend: Backend {
                     usage: totalUsage,
                     toolEvents: toolEvents,
                     stdoutLength: completion.text.utf8.count,
-                    durationMs: (ContinuousClock.now - started).milliseconds
+                    durationMs: (ContinuousClock.now - started).milliseconds,
+                    contextTokens: roundUsage.flatMap(Self.contextTokens(after:))
                 )
             }
             
@@ -238,4 +275,11 @@ struct AgentLoopBackend: Backend {
     }
     
     // MARK: - Private
+    // What the round's request held and what it answered are the conversation
+    // as the turn ends. An endpoint that does not count the request reports no size.
+    private static func contextTokens(after usage: AgentUsage) -> Int? {
+        guard let inputTokens = usage.inputTokens else { return nil }
+        
+        return inputTokens + (usage.cacheReadTokens ?? 0) + (usage.outputTokens ?? 0)
+    }
 }

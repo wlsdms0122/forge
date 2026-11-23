@@ -9,8 +9,13 @@ import Foundation
 
 struct ClaudeBackend: Backend {
     // MARK: - Property
+    // What claude writes to stderr when `--resume` names a conversation it does not have.
+    private static let missingConversation = "No conversation found with session ID"
+    
     let executable: String
     let translator: ClaudeTranslator
+    // The one-hour prompt cache claude code writes its conversations to.
+    let cacheLifetime: Duration? = .seconds(3600)
     
     // MARK: - Initializer
     init(executable: String = "claude", translator: ClaudeTranslator = ClaudeTranslator()) {
@@ -32,12 +37,6 @@ struct ClaudeBackend: Backend {
         guard parsed.sawTerminalResult else {
             throw BackendProtocolViolation(
                 "claude successful turn omitted its terminal result envelope\(location)"
-            )
-        }
-        
-        guard !parsed.finalText.isEmpty || !parsed.toolEvents.isEmpty else {
-            throw BackendProtocolViolation(
-                "claude successful turn observed neither text nor a tool call\(location)"
             )
         }
     }
@@ -95,55 +94,14 @@ struct ClaudeBackend: Backend {
             diagnostics: translated.diagnostics
         )
         
-        let outputFormat = "stream-json"
-        let extraArgs: [String] = ["--verbose"]
         let claudeSession = invocation.session as? ClaudeSession
-        let sessionID = claudeSession?.sessionID ?? UUID().uuidString
-        let baseIndex = claudeSession?.turnIndex ?? 0
-        let established = claudeSession?.established ?? false
+        let index = claudeSession?.turnIndex ?? 0
         let started = ContinuousClock.now
         
         try Task.checkCancellation()
         
-        let index = baseIndex
-        let sessionArgs: [String] = established
-            ? ["--resume", sessionID]
-            : ["--session-id", sessionID]
-        let arguments = Self.buildArgs(
-            configuration: native,
-            user: invocation.prompt,
-            outputFormat: outputFormat,
-            session: sessionArgs,
-            extra: extraArgs
-        )
-        let reader = StreamJSON.Reader()
-        let lineHandler: Subprocess.StdoutLineHandler = { (frame: Data, at: Date) in
-            reader.feed(frame: frame, at: at)
-        }
-        let result = try await Subprocess.run(
-            executable: executable,
-            args: arguments,
-            cwd: native.workingDirectory,
-            envExtra: native.environment,
-            stdin: "",
-            onStdoutLine: lineHandler
-        )
-        
-        claudeSession?.established = true
-        
-        try Task.checkCancellation()
-        
-        if result.exitCode != 0 {
-            throw BackendNonzeroExit(
-                "claude exit \(result.exitCode) (turn \(index)):"
-                    + " \(Self.failureDetail(stderr: result.stderr, stdout: result.stdout))",
-                exitCode: result.exitCode,
-                stderr: result.stderr,
-                stdout: result.stdout
-            )
-        }
-        
-        let parsed = reader.snapshot()
+        let output = try await run(invocation.prompt, in: claudeSession, configuration: native)
+        let parsed = output.parsed
         let toolEvents = parsed.toolEvents
         
         for (sequence, event) in toolEvents.enumerated() {
@@ -166,7 +124,7 @@ struct ClaudeBackend: Backend {
         
         let text = parsed.finalText
         let usage = parsed.usage?.agentUsage
-        claudeSession?.turnIndex = baseIndex + 1
+        claudeSession?.turnIndex = index + 1
         
         let durationMs = (ContinuousClock.now - started).milliseconds
         
@@ -174,8 +132,10 @@ struct ClaudeBackend: Backend {
             text: text,
             usage: (usage?.isEmpty ?? true) ? nil : usage,
             toolEvents: toolEvents,
-            stdoutLength: result.stdout.count,
-            durationMs: durationMs
+            stdoutLength: output.stdoutLength,
+            durationMs: durationMs,
+            contextTokens: parsed.contextTokens,
+            isCompacted: parsed.sawCompaction
         )
     }
     
@@ -183,5 +143,86 @@ struct ClaudeBackend: Backend {
         ClaudeSession(sessionID: UUID().uuidString)
     }
     
+    func record(of session: any BackendSession) throws -> JSONValue {
+        guard let session = session as? ClaudeSession else {
+            throw BackendSessionNotKept("the session is not one claude opened")
+        }
+        
+        return ["session_id": .string(session.sessionID), "turn_index": .int(session.turnIndex)]
+    }
+    
+    func session(from record: JSONValue) throws -> any BackendSession {
+        guard
+            let sessionID = record["session_id"]?.stringValue,
+            let turnIndex = record["turn_index"]?.intValue
+        else {
+            throw BackendSessionNotKept("the record does not name a claude session")
+        }
+        
+        return ClaudeSession(sessionID: sessionID, turnIndex: turnIndex, established: true)
+    }
+    
+    func compact(
+        _ session: any BackendSession,
+        turn: @Sendable (String) async throws -> BackendResponse
+    ) async throws -> BackendResponse {
+        try await turn("/compact")
+    }
+    
     // MARK: - Private
+    // One claude process over the session's conversation, and what it wrote.
+    // A turn outside a session runs in a conversation of its own.
+    private func run(
+        _ prompt: String,
+        in session: ClaudeSession?,
+        configuration: ClaudeAgentConfiguration
+    ) async throws -> (parsed: StreamParseResult, stdoutLength: Int) {
+        let sessionID = session?.sessionID ?? UUID().uuidString
+        let index = session?.turnIndex ?? 0
+        let established = session?.established ?? false
+        let arguments = Self.buildArgs(
+            configuration: configuration,
+            user: prompt,
+            outputFormat: "stream-json",
+            session: established ? ["--resume", sessionID] : ["--session-id", sessionID],
+            extra: ["--verbose"]
+        )
+        let reader = StreamJSON.Reader()
+        let lineHandler: Subprocess.StdoutLineHandler = { (frame: Data, at: Date) in
+            reader.feed(frame: frame, at: at)
+        }
+        let result = try await Subprocess.run(
+            executable: executable,
+            args: arguments,
+            cwd: configuration.workingDirectory,
+            envExtra: configuration.environment,
+            stdin: "",
+            onStdoutLine: lineHandler
+        )
+        
+        session?.established = true
+        
+        try Task.checkCancellation()
+        
+        guard result.exitCode == 0 else {
+            let exit = BackendNonzeroExit(
+                "claude exit \(result.exitCode) (turn \(index)):"
+                    + " \(Self.failureDetail(stderr: result.stderr, stdout: result.stdout))",
+                exitCode: result.exitCode,
+                stderr: result.stderr,
+                stdout: result.stdout
+            )
+            
+            if established, result.stderr.contains(Self.missingConversation) {
+                throw BackendSessionLost(
+                    "claude has no conversation for session \(sessionID) (turn \(index))",
+                    exit: exit
+                )
+            }
+            
+            throw exit
+        }
+        
+        return (reader.snapshot(), result.stdout.count)
+    }
 }

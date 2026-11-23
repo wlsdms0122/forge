@@ -15,7 +15,7 @@ For what a workflow file holds and the verbs Forge lends a run, see
 **[Spec.md](./Spec.md)**.
 
 - [1. Invocation & configuration](#1-invocation--configuration): version, binary/socket discovery, config, env, global options, exit status
-- [2. CLI surface](#2-cli-surface): [`serve`](#forge-serve) · [`workflow`](#forge-workflow) · [`schedule`](#forge-schedule) · [`job`](#forge-job) · [`resource`](#forge-resource) · [`service`](#forge-service) · [`status`](#forge-status) · [`policy`](#forge-policy) · [`token issue`](#forge-token-issue)
+- [2. CLI surface](#2-cli-surface): [`serve`](#forge-serve) · [`workflow`](#forge-workflow) · [`schedule`](#forge-schedule) · [`job`](#forge-job) · [`session`](#forge-session) · [`resource`](#forge-resource) · [`service`](#forge-service) · [`status`](#forge-status) · [`policy`](#forge-policy) · [`token issue`](#forge-token-issue)
 - [3. RPC transport](#3-rpc-transport)
 - [4. RPC methods](#4-rpc-methods)
 - [5. Authentication](#5-authentication)
@@ -67,8 +67,8 @@ otherwise. Each key then resolves in this order:
 the file read  >  FORGE_* env vars  >  built-in defaults
 ```
 
-An env var fills only a key the file leaves unset (or, for a `[pool]` key, sets
-to a number that is not positive).
+An env var fills only a key the file leaves unset (or, for a `[pool]` or
+`[session]` key, sets to a number that is not positive).
 A `--config` path with no file behind it is a `ConfigError`
 (`config <path>: no such file`); with no `--config`, `<instanceHome>/config.toml`
 is read if it is there and the defaults apply if it is not.
@@ -96,6 +96,9 @@ its kind does not read skips the provider as a missing one does.
 | `[log]` `maximum_bytes` | `52428800` (50 MiB) | single-file rotation threshold; ≤0 disables rotation |
 | `[pool]` `maximum_concurrent_steps` | `4` | concurrent step cap (each `shell` run and each `agent` turn holds a slot); excess queues FIFO |
 | `[pool]` `maximum_active_runs` | `256` | concurrent registered-run cap |
+| `[session]` `context_limit` | `250000` | the conversation size, in tokens, past which a kept session is compacted as an `invoke` takes it up |
+| `[session]` `cold_compact_floor` | `80000` | the size past which a kept session is compacted as an `invoke` takes it up once the backend's cache of it has expired |
+| `[session]` `retention_days` | `7` | how long a session no `invoke` uses is kept; the daemon drops older ones as it starts and every hour, logging `session.expired`, and a dropped name starts a new conversation |
 | `[provider.<name>]` `kind` (+ settings) | one `claude` (claude-cli) | backend instances. `kind` = `claude-cli` \| `codex-cli` \| `openai-compat`. CLI kinds accept `executable` (default: the CLI's name on `PATH`); `openai-compat` requires `endpoint`, the base URL, and an Agent reference without a model leaves the choice to the endpoint. A provider without a known `kind` or a required setting, or with a setting its kind does not read, is skipped with a warning on stderr. Declaring any drops the built-in claude default, so list it explicitly alongside others. API keys via `FORGE_PROVIDER_<NAME>_API_KEY` env only. |
 | `[service.<name>]` `command` (+ `working_directory`/`environment`/`auto_spawn`/`log_file`/`restart_backoff_initial_milliseconds`/`restart_backoff_maximum_milliseconds`/`restart_crash_loop_limit`) | no service; for a declared one: `auto_spawn` `true`, `log_file` `<instanceHome>/state/services/<name>.log`, `restart_backoff_initial_milliseconds` `1000`, `restart_backoff_maximum_milliseconds` `30000`, `restart_crash_loop_limit` `5` | a managed child process forge spawns and supervises. `command` is its argv; a relative `command[0]` that contains `/` resolves against the toml's directory. A block without `command` is skipped with a warning on stderr. See CONFIG SCHEMA in `forge serve --help` |
 | `[hooks]` `logging` | `true` | log each agent invocation (request, response, error) to the forge log |
@@ -118,6 +121,7 @@ effective config + every key's source (`toml`/`env`/`default`).
 | `FORGE_WORKING_DIRECTORY` / `FORGE_POLICY_DIRECTORY` | `serve`: `[directory]` `working` / `policy` where the file leaves it unset |
 | `FORGE_LOG_JSONL` / `FORGE_ERROR_LOG` / `FORGE_LOG_MAXIMUM_BYTES` | `serve`: `[log]` `jsonl` / `error` / `maximum_bytes` where the file leaves it unset |
 | `FORGE_POOL_MAXIMUM_CONCURRENT_STEPS` / `FORGE_POOL_MAXIMUM_ACTIVE_RUNS` | `serve`: `[pool]` `maximum_concurrent_steps` / `maximum_active_runs` where the file leaves it unset or not positive |
+| `FORGE_SESSION_CONTEXT_LIMIT` / `FORGE_SESSION_COLD_COMPACT_FLOOR` / `FORGE_SESSION_RETENTION_DAYS` | `serve`: `[session]` `context_limit` / `cold_compact_floor` / `retention_days` where the file leaves it unset or not positive |
 
 ### Global options
 
@@ -366,6 +370,22 @@ token (each token has its own id), not with its principal.
 | `forge job update <id> [--note --brief --ref --ref-note --item --item-desc --item-status --status] [--json]` | `job.update` | field-level ops, append-safe |
 | `forge job delete <id> [--json]` | `job.delete` | remove a reviewed ticket (unlinks it from its parent) |
 
+### `forge session`
+
+List, show and delete the agent sessions kept by name. An `invoke` that names
+a `session` speaks through a conversation that outlives it (see
+[Spec.md](./Spec.md), `Forge.invoke`). The daemon keeps one record per name
+under `<instanceHome>/state/sessions/<name>.json`: the backend's handle on the
+conversation, the settings the session was made with, and when it was made and
+last used. The conversation itself stays with the backend. A record is written
+when a turn finishes, so a session no turn finished in is not kept.
+
+| Command | RPC | Notes |
+|---------|-----|-------|
+| `forge session list [--json]` | `session.list` | every kept session, by name |
+| `forge session show <name> [--json]` | `session.show` | one session in full |
+| `forge session delete <name> [--json]` | `session.delete` | drop the record; the name starts a new conversation next time |
+
 ### `forge resource`
 
 Inspect files under the working directory. The daemon hands out only relative
@@ -581,6 +601,9 @@ under attenuation from the presenter's principal (section 5).
 | `job.list` | token | no | `job list` |
 | `job.update` | token | no | `job update` |
 | `job.delete` | token | no | `job delete` |
+| `session.list` | token | no | `session list` |
+| `session.show` | token | no | `session show` |
+| `session.delete` | token | no | `session delete` |
 | `resource.list` | token | no | `resource list` |
 | `resource.read` | token | no | `resource read` |
 | `policy.list` | token | no | `policy list` |
@@ -910,6 +933,46 @@ records the attachment as a touch event.
 **params** `{"token","id"}`. **result** `{"id","deleted":true}`. Removes the
 ticket and unlinks it from its parent's children.
 
+### `session.list`
+
+**params** `{"token"}`. **result**
+
+```json
+{"sessions":[{"name","provider","handle","model"?,"allowed"?,"permission_mode"?,
+              "created_at","used_at","turns","context_tokens"?,"compact","compactions",
+              "needs_session_start","needs_context_start","held","waiting"}]}
+```
+
+Sorted by name; a name is in lowercase, whatever case the `invoke` spelled it in. `handle` is what the backend wrote to find the conversation
+again (`claude`: `{"session_id","turn_index"}`). `model`, `allowed` and
+`permission_mode` are the session's settings as its first `invoke` gave them,
+absent where it gave none. `turns` counts the turns finished since the
+conversation started. `context_tokens` is the conversation's size as its last
+turn ended (what that turn's last request carried in, cached or not), absent
+until a turn reports one and again after a compaction until the next turn
+measures it. `compact` is when the daemon compacts the session as an `invoke` takes
+it up (`"auto"`, `"none"` or a size in tokens),
+and `compactions` how many times the conversation was compacted, by the
+daemon or by a turn. `needs_session_start` is whether the
+session started and no `invoke`'s `on_session_start` has run since, and
+`needs_context_start` whether the conversation holds no context an
+`on_context_start` built: the session started or was compacted since one ran. `held` is whether an `invoke` holds the session now, and
+`waiting` how many wait behind it.
+
+A record that does not read is left out of the list; `session.show` says why.
+
+### `session.show`
+
+**params** `{"token","name"}`. **result** `{"session":{...}}`, one row of
+`session.list`. Unknown name, a name that is not a session name, or a record
+that does not read → `SessionStoreError`.
+
+### `session.delete`
+
+**params** `{"token","name"}`. **result** `{"name","deleted":true}`. Removes
+the daemon's record and leaves the backend's conversation alone. A session an
+`invoke` holds, or a name with no record → `SessionStoreError`.
+
 ### `resource.list`
 
 **params** `{"token"}`. **result** `{"resources":[{"path","size","mtime"}]}`.
@@ -1152,6 +1215,10 @@ The error envelope is `{"type": "<ErrorType>", "message": "<text>"}` and the fie
 | `ProtocolError` | the request's envelope or payload is malformed, or an id it names is invalid, taken or missing |
 | `JobStoreError` | a job file is missing or unreadable |
 | `AgentValidationError` | an `invoke`'s agent cannot be built: its model, tools or `permission_mode`, or a combination its provider cannot run; fix the workflow |
+| `SessionStoreError` | a session name is not path components of `[A-Za-z0-9._-]` (none starting with a dot or ending in `.json`), no session is kept under it, its record does not read, or it is held by a running `invoke` (`session.delete`) |
+| `BackendSessionNotKept` | an `invoke` names a `session` on a backend that does not keep one past the `invoke`; drop the name or use a backend that does |
+| `BackendCompactionUnavailable` | a session grew past the daemon's sizes on a backend that cannot compact one; give the `invoke` `compact: { case: none }` or raise `[session]` |
+| `BackendSessionLost` | a backend no longer has the conversation a session names. An `invoke` does not surface it: taking up a kept session, the name starts a new conversation and the daemon logs `session.lost`; later in the body the turn fails with the backend's `BackendNonzeroExit` |
 | `AgentSessionMissing` | an `agent` step ran outside an `invoke`, where no agent session is open; fix the workflow |
 | `ResourceError` | a file cannot be given: a path with an empty, `.` or `..` part, a workflow path spelled `<inline>`, a `resource.read` path that is absolute, hidden or led out by a link, a missing or unreadable file |
 | `ServiceFailed` | the service handling a `service.send` answered with an error; the message is the service's |

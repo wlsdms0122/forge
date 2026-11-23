@@ -60,6 +60,23 @@ struct ConfigLoaderTests {
         #expect(entry.value == "4", "the report value must match the actual build value (4) so daemon.status/workflow.list_active do not diverge")
     }
     
+    @Test("The session sizes are read from the file, and stand at their defaults where it is silent")
+    func sessionSizesAreReadFromTheFile() throws {
+        // Given
+        let directory = try temporary.make("session")
+        let home = try temporary.make("session-home")
+        defer { for d in [directory, home] { try? FileManager.default.removeItem(at: d) } }
+        let url = try writeTOML("[session]\ncontext_limit = 120000\n", in: directory)
+        
+        // When
+        let configuration = ConfigLoader.build(file: try ConfigLoader.parse(url), tomlDirectory: directory, instanceHome: home, environment: [:])
+        
+        // Then
+        #expect(configuration.session.contextLimit == 120_000)
+        #expect(configuration.session.coldCompactFloor == 80_000)
+        #expect(configuration.session.retentionDays == 7)
+    }
+    
     @Test("With no configuration, convention defaults take effect")
     func conventionDefaultsWhenSilent() throws {
         // Given
@@ -193,6 +210,7 @@ struct ConfigLoaderTests {
         arguments: [
             ("[directory]\nroot = \"doc\"", "config [directory]: unknown key 'root'; known keys: policy, working"),
             ("[pool]\nmaximum = 3\nsteps = 2", "config [pool]: unknown keys 'maximum', 'steps'"),
+            ("[session]\nlimit = 3", "config [session]: unknown key 'limit'; known keys: cold_compact_floor, context_limit, retention_days"),
             ("[service.bot]\ncommand = [\"x\"]\ncwd = \"/\"", "config [service.bot]: unknown key 'cwd'"),
             ("[logs]\njsonl = \"x\"", "config top level: unknown key 'logs'")
         ]

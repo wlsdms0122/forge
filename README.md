@@ -76,7 +76,7 @@ touched.
 
 ### Verbs
 
-The verbs a workflow reaches the world with (`shell`, `invoke`, `agent`,
+The verbs a workflow reaches the world with (`shell`, `invoke`, `agent`, `compact`,
 `dispatch`, `resource`, `locate`, `extract`, `run`, `origin`) are the
 procedures of Forge's library, a document written in the same notation that
 the daemon carries. A workflow writes `uses: [Forge]` to use them. A verb is
@@ -118,7 +118,7 @@ own fields (a shell failure: `exit_code`, `stderr`, `stdout`).
 Each named instance (`--instance dev`) is its own daemon with its own home,
 `<XDG_CONFIG_HOME | ~/.config>/forge/<instance>`: the socket, `config.toml`,
 policy, logs, and the state that outlives a restart (jobs, schedules,
-service records). Workflows and the files they read live in the instance's
+named agent sessions, service records). Workflows and the files they read live in the instance's
 working directory, `<home>/document` unless the config names another.
 
 ### Agent session
@@ -126,6 +126,18 @@ working directory, `<home>/document` unless the config names another.
 `invoke` opens one LLM session around a body, and each `agent` call in it is
 one turn, so a validate-and-retry loop *continues the same dialogue* instead
 of starting over, and the model remembers what it already produced.
+
+Given a `session` name, the dialogue outlives the `invoke`: the next one
+with the same name continues it, from this run or another, and across a
+daemon restart. Invokes of one name take turns, so parallel runs can share
+a reviewer or a chat thread without talking over each other.
+
+A kept dialogue grows, so the daemon compacts it as an `invoke` takes it up
+once it is past a size, or past a smaller one when the backend's cache of it
+has gone cold. The turns of one `invoke` are left whole. An `invoke` may bring `on_context_start`, the turns that build the
+session's context; the daemon runs it when the dialogue is new or was
+compacted, and the workflow never asks which. `on_session_start` runs once
+for each session the backend opens.
 
 ## Philosophy
 
@@ -288,7 +300,7 @@ lists it.
 open-package build           # the release binary, at .build/forge
 open-package test            # unit and integration suites
 open-package e2e             # build, then the release e2e gate on .build/forge
-open-package embed-library   # after editing lib/Forge.yaml
+open-package embed-library   # after editing a file in lib
 ```
 
 The e2e gate (`test/run <binary>`) boots a real daemon against the in-repo
@@ -303,7 +315,9 @@ build plugin writes it into the binary at every build, so `forge --version`,
 The library is edited in `lib/Forge.yaml`. The binary carries a copy of it,
 `Library.swift`, which `tool/embed-library.sh` writes; run it after an edit.
 `ForgeVocabularyTests` holds the copy to the file, so an edit that was not
-embedded is a red test.
+embedded is a red test. The prompt that asks a conversation for its summary,
+where the daemon compacts one its backend cannot, is `lib/Compaction.prompt.md`
+and ships the same way, as `CompactionPrompt.swift`.
 
 ```
 manifest.toml   the open-package manifest: version, requirements, commands

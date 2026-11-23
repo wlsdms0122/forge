@@ -22,6 +22,7 @@ package actor Server {
     let workflowPool: WorkflowPool
     let workflowRunner: WorkflowRunner
     let workflowScheduler: WorkflowScheduler
+    let sessionSweeper: SessionSweeper
     let serviceBus: ServiceBus
     let workRegistry: WorkRegistry
     let serviceSupervisor: ServiceSupervisor
@@ -84,6 +85,9 @@ package actor Server {
         let fireLedger = FireLedger(
             path: config.stateDirectory.appendingPathComponent("fire-ledger.json")
         )
+        let sessionStore = SessionStore(
+            directory: config.stateDirectory.appendingPathComponent("sessions", isDirectory: true)
+        )
         let workingDirectory = WorkingDirectory(directory: config.workingDirectory)
         let workflowsLocal = WorkflowReader(
             workingDirectory: workingDirectory,
@@ -110,9 +114,9 @@ package actor Server {
             tokenAuthority: tokenAuthorityLocal,
             jobStore: jobStoreLocal,
             capabilities: CapabilitySet(
-                shell: LiveShell(),
-                agent: LiveAgent(executor: executor),
-                resources: LiveResources(workingDirectory: workingDirectory)
+                shell: ShellExecutor(),
+                agent: AgentService(executor: executor, sessions: sessionStore, limits: config.session),
+                resources: ResourceReader(workingDirectory: workingDirectory)
             )
         )
         let scheduler = WorkflowScheduler(
@@ -133,6 +137,10 @@ package actor Server {
         self.workflowPool = pool
         self.workflowRunner = runnerLocal
         self.workflowScheduler = scheduler
+        self.sessionSweeper = SessionSweeper(
+            store: sessionStore,
+            retention: .seconds(config.session.retentionDays * 24 * 3600)
+        )
         self.serviceBus = serviceBus
         self.workRegistry = workRegistryLocal
         
@@ -169,6 +177,7 @@ package actor Server {
             policyStore: policyStoreLocal
         )
         let job = JobNamespace(store: jobStoreLocal, workRegistry: workRegistryLocal)
+        let session = SessionNamespace(store: sessionStore)
         let resource = ResourceNamespace(workingDirectory: workingDirectory)
         let policy = PolicyNamespace(store: policyStoreLocal)
         let token = TokenNamespace(authority: tokenAuthorityLocal)
@@ -185,6 +194,7 @@ package actor Server {
             methods: workflow.methods
                 + schedule.methods
                 + job.methods
+                + session.methods
                 + resource.methods
                 + policy.methods
                 + token.methods
@@ -219,6 +229,7 @@ package actor Server {
         await policyStore.reload()
         await workflowLogger.start()
         await workflowScheduler.start()
+        await sessionSweeper.start()
         
         try await acceptLoop.start()
         
@@ -257,6 +268,7 @@ package actor Server {
         await workflowPool.beginShutdown()
         await serviceSupervisor.stopAll()
         await workflowScheduler.stop()
+        await sessionSweeper.stop()
         
         let leftover = await workflowPool.drain()
         

@@ -1,5 +1,5 @@
 //
-//  LiveShellTests.swift
+//  ShellExecutorTests.swift
 //  ForgeTests
 //
 //  Created by JSilver on 8/9/26.
@@ -10,10 +10,10 @@ import Testing
 import Warp
 @testable import Forge
 
-@Suite("LiveShell Tests")
-struct LiveShellTests {
+@Suite("ShellExecutor Tests")
+struct ShellExecutorTests {
     // MARK: - Property
-    private let sut = LiveShell()
+    private let sut = ShellExecutor()
 
     // MARK: - Initializer
     // MARK: - Test
