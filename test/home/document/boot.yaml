@@ -1,6 +1,6 @@
-# A named session with a setup: the session `e2e/booted` is set up by one
-# agent turn before the first turn of the body, and a later run that finds
-# it set up sends only its own turn.
+# A named session with both hooks: the session `e2e/booted` starts with one
+# agent turn and its context with another before the first turn of the body,
+# and a later run that finds both done sends only its own turn.
 uses: [Forge]
 procedures:
   main:
@@ -13,7 +13,12 @@ procedures:
         arguments:
           model: claude
           session: e2e/booted
-          setup:
+          on_session_start:
+            closure:
+              body:
+                - let: greeted
+                  value: { call: { procedure: agent, arguments: { prompt: greet } } }
+          on_context_start:
             closure:
               body:
                 - let: booted
