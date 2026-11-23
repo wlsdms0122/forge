@@ -211,7 +211,8 @@ like `model` it is the session's: a kept session keeps the one it was made
 with. A turn can compact the conversation too: the backend on reaching its
 own limit, or the prompt the turn carried (`/compact` to `claude`), and such
 a turn may end with no text. The daemon logs `session.compacted` with the
-reason: `limit`, `cold`, or `turn` for one a turn did.
+reason: `limit`, `cold`, `turn` for one a turn did, or `requested` for one a
+`compact` step asked for.
 A backend that cannot compact fails the turn with `BackendCompactionUnavailable`.
 The `claude` backend compacts, and its cache stands for an hour.
 
@@ -240,6 +241,18 @@ slot. Outside a session it is refused. A piece of a fan-out speaks to no
 session it did not open. A turn its backend refuses (a nonzero exit of the
 agent's CLI, an HTTP error below 500) fails with `nonzero_exit`, whose details
 are `exit_code`, `stderr` and `stdout`.
+
+### `Forge.compact`
+
+`compact() -> Bool`, failing `nonzero_exit`.
+
+Compacts the conversation of the session the enclosing `invoke` opened,
+holding a step slot, whatever the session's `compact` says: it is how a
+workflow compacts a session it made with `compact: false`. `true` once the
+conversation was compacted, and `false` where there was none to compact: no
+turn has gone into the session yet. Outside a session it is refused. The
+compaction is logged as `session.compacted` with the reason `requested`, and
+`on_context_start` is due after it as after any compaction.
 
 ### `Forge.dispatch`
 

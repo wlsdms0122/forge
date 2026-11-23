@@ -76,7 +76,7 @@ touched.
 
 ### Verbs
 
-The verbs a workflow reaches the world with (`shell`, `invoke`, `agent`,
+The verbs a workflow reaches the world with (`shell`, `invoke`, `agent`, `compact`,
 `dispatch`, `resource`, `locate`, `extract`, `run`, `origin`) are the
 procedures of Forge's library, a document written in the same notation that
 the daemon carries. A workflow writes `uses: [Forge]` to use them. A verb is
