@@ -329,6 +329,13 @@ def main():
               "a session past the context limit is compacted before its next turn", regrown + shown)
         harness.forge("session", "delete", "e2e/grown")
 
+        # A compaction the workflow asks for, in a session the daemon leaves alone.
+        asked = harness.forge("workflow", "dispatch", "ask.yaml")
+        shown = harness.forge("session", "show", "e2e/asked", "--json").replace(" ", "")
+        check("true" in asked and '"compact":false' in shown and '"compactions":1' in shown,
+              "a compact step compacts a session made with compact off", asked + shown)
+        harness.forge("session", "delete", "e2e/asked")
+
         # Lifecycle: a session and its context start before its first turn,
         # and a later run that finds both started sends only its own turn.
         harness.forge("workflow", "dispatch", "boot.yaml")
