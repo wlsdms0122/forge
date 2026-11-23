@@ -81,7 +81,8 @@ struct CodexBackend: Backend {
                 threadIdentifier: session.threadIdentifier,
                 turnIndex: session.turnIndex,
                 usage: session.cumulativeUsage,
-                summary: session.summary
+                summary: session.summary,
+                rolloutPath: session.rolloutPath
             )
         )
     }
@@ -95,7 +96,8 @@ struct CodexBackend: Backend {
             threadIdentifier: record.threadIdentifier,
             turnIndex: record.turnIndex,
             cumulativeUsage: record.usage,
-            summary: record.summary
+            summary: record.summary,
+            rolloutPath: record.rolloutPath
         )
     }
     
@@ -116,6 +118,7 @@ struct CodexBackend: Backend {
         return try await SummaryCompaction().compact(turn: turn) { summary in
             session.threadIdentifier = nil
             session.cumulativeUsage = nil
+            session.rolloutPath = nil
             session.summary = summary
         }
     }
@@ -174,6 +177,8 @@ struct CodexBackend: Backend {
         
         // A thread that started took the prompt, and the summary with it.
         if let threadIdentifier = streamed.threadIdentifier {
+            if session?.threadIdentifier != threadIdentifier { session?.rolloutPath = nil }
+            
             session?.threadIdentifier = threadIdentifier
             session?.summary = nil
         }
@@ -221,12 +226,26 @@ struct CodexBackend: Backend {
             return baseline.map { baseline in total.subtracting(baseline) } ?? total
         }
         
+        let rollout = CodexRollout(
+            environment: ProcessInfo.processInfo.environment
+                .merging(native.environment) { _, override in override }
+        )
+        
+        // The sessions of every thread are searched once for the file.
+        let file = session?.rolloutPath
+            .map { path in URL(fileURLWithPath: path) }
+            .flatMap { file in FileManager.default.fileExists(atPath: file.path) ? file : nil }
+            ?? parsed.threadIdentifier.flatMap(rollout.file(of:))
+        
+        session?.rolloutPath = file?.path
+        
         return BackendResponse(
             text: parsed.finalText,
             usage: turnUsage,
             toolEvents: observedToolEvents,
             stdoutLength: result.stdout.count,
-            durationMs: (ContinuousClock.now - started).milliseconds
+            durationMs: (ContinuousClock.now - started).milliseconds,
+            contextTokens: file.flatMap(rollout.contextTokens(in:))
         )
     }
     
