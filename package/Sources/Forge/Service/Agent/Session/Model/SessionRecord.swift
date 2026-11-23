@@ -37,8 +37,8 @@ struct SessionRecord: Sendable, Equatable, Codable {
     var turns: Int
     // The conversation's size as its last turn ended; nil until a turn reports one.
     var contextTokens: Int?
-    // Whether the daemon compacts the session as it grows.
-    let compact: Bool
+    // When the daemon compacts the session an invoke takes up.
+    let compact: CompactionPolicy
     // How many times the daemon has compacted the conversation.
     var compactions: Int
     // Whether the session started and no invoke's `on_session_start` has run since.
@@ -73,7 +73,7 @@ struct SessionRecord: Sendable, Equatable, Codable {
         usedAt: String,
         turns: Int,
         contextTokens: Int? = nil,
-        compact: Bool,
+        compact: CompactionPolicy,
         compactions: Int = 0,
         needsSessionStart: Bool = true,
         needsContextStart: Bool = true

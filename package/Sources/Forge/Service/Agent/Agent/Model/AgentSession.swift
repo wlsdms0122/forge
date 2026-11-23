@@ -21,8 +21,8 @@ final class AgentSession: @unchecked Sendable {
 
     let agent: Agent
     let backend: any Backend
-    // Whether the session is compacted as it grows past the daemon's sizes.
-    let compacts: Bool
+    // When the daemon compacts the session an invoke takes up.
+    let compaction: CompactionPolicy
 
     var handle: any BackendSession
     var keeping: SessionKeeping
@@ -46,7 +46,7 @@ final class AgentSession: @unchecked Sendable {
     init(
         agent: Agent,
         backend: any Backend,
-        compacts: Bool,
+        compaction: CompactionPolicy,
         handle: any BackendSession,
         keeping: SessionKeeping,
         contextTokens: Int? = nil,
@@ -55,7 +55,7 @@ final class AgentSession: @unchecked Sendable {
     ) {
         self.agent = agent
         self.backend = backend
-        self.compacts = compacts
+        self.compaction = compaction
         self.handle = handle
         self.keeping = keeping
         self.contextTokens = contextTokens

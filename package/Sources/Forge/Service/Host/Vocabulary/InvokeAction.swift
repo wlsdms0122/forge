@@ -64,7 +64,7 @@ struct InvokeAction: ForgeAction {
                 )
 
             case .compact:
-                Parameter(name: "compact", type: .bool)
+                Parameter(name: "compact", type: .named(ForgeVocabulary.compactionType))
 
             case .timeout:
                 Parameter(name: "timeout", type: .optional(.double))
@@ -105,7 +105,7 @@ struct InvokeAction: ForgeAction {
             envExtra: try ValueBridge.strings(invocation[.envExtra]),
             shareSession: invocation[.shareSession] == .bool(true),
             session: try Self.nonEmpty(invocation.string(.session), field: "session").map(SessionName.init),
-            compact: invocation[.compact] == .bool(true)
+            compact: try Self.compaction(invocation[.compact])
         )
 
         // Both say which session the body speaks through, so they cannot both stand.
@@ -133,6 +133,25 @@ struct InvokeAction: ForgeAction {
         guard case let .procedure(procedure) = invocation[parameter] else { return nil }
 
         return { _ = try await invocation.call(procedure) }
+    }
+
+    private static func compaction(_ value: Warp.Value) throws -> CompactionPolicy {
+        guard case let .struct(compaction) = value else {
+            throw RunRefused("invoke: compact is no case of \(ForgeVocabulary.compactionType)")
+        }
+
+        // A value of an enum carries its case's spelling.
+        let auto: Warp.Name = "Forge.Compaction.auto"
+        let none: Warp.Name = "Forge.Compaction.none"
+
+        if compaction.name == auto { return .automatic }
+        if compaction.name == none { return .none }
+
+        guard case let .int(tokens)? = compaction.values.first, tokens > 0 else {
+            throw RunRefused("invoke: compact's limit must be above 0 tokens")
+        }
+
+        return .limit(tokens)
     }
 
     // null means "unset" and stays nil, and the signature holds the rest to a list.
