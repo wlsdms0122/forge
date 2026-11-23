@@ -1,5 +1,5 @@
 //
-//  LiveAgentTests.swift
+//  AgentServiceTests.swift
 //  ForgeTests
 //
 //  Created by JSilver on 8/9/26.
@@ -10,8 +10,8 @@ import Testing
 import Warp
 @testable import Forge
 
-@Suite("LiveAgent Tests")
-struct LiveAgentTests {
+@Suite("AgentService Tests")
+struct AgentServiceTests {
     // MARK: - Property
     // MARK: - Initializer
     // MARK: - Test
@@ -19,7 +19,7 @@ struct LiveAgentTests {
     func sendSpeaksThroughAmbientSession() async throws {
         // Given
         let recorder = AgentRecorder()
-        let sut = LiveAgent(executor: AgentExecutor(backend: recorder))
+        let sut = AgentService(executor: AgentExecutor(backend: recorder))
         let settings = AgentSessionSettings(model: "claude:probe")
 
         // When
@@ -35,7 +35,7 @@ struct LiveAgentTests {
     @Test("send without a session throws as an author error")
     func sendThrowsWithoutSession() async throws {
         // Given
-        let sut = LiveAgent(executor: AgentExecutor(backend: StubBackend()))
+        let sut = AgentService(executor: AgentExecutor(backend: StubBackend()))
 
         // When / Then
         await #expect(throws: AgentSessionMissing.self) {
@@ -47,7 +47,7 @@ struct LiveAgentTests {
     func shareSessionReusesAmbientSession() async throws {
         // Given
         let recorder = AgentRecorder()
-        let sut = LiveAgent(executor: AgentExecutor(backend: recorder))
+        let sut = AgentService(executor: AgentExecutor(backend: recorder))
         let outer = AgentSessionSettings(model: "claude:outer")
         let inner = AgentSessionSettings(shareSession: true)
 
@@ -67,7 +67,7 @@ struct LiveAgentTests {
         // Given — share_session is conditional joining, so it carries a config for the
         // case where joining fails. Without an ambient session, that config is used.
         let recorder = AgentRecorder()
-        let sut = LiveAgent(executor: AgentExecutor(backend: recorder))
+        let sut = AgentService(executor: AgentExecutor(backend: recorder))
         let settings = AgentSessionSettings(model: "claude:fallback", shareSession: true)
 
         // When
@@ -84,7 +84,7 @@ struct LiveAgentTests {
     func noModelRunsOnTheSoleBackend() async throws {
         // Given
         let recorder = AgentRecorder()
-        let sut = LiveAgent(executor: AgentExecutor(backend: recorder))
+        let sut = AgentService(executor: AgentExecutor(backend: recorder))
         let settings = AgentSessionSettings()
 
         // When
@@ -103,7 +103,7 @@ struct LiveAgentTests {
     func noModelIsRefusedAmongBackends() async throws {
         // Given
         let registry = BackendRegistry(["claude": StubBackend(), "codex": StubBackend()])
-        let sut = LiveAgent(executor: AgentExecutor(backends: registry))
+        let sut = AgentService(executor: AgentExecutor(backends: registry))
         let settings = AgentSessionSettings()
         let reason = #expect(throws: BackendNotRegistered.self) {
             try registry.resolve(provider: nil)
@@ -121,7 +121,7 @@ struct LiveAgentTests {
     @Test("an invalid permission_mode throws")
     func unknownPermissionModeThrows() async throws {
         // Given
-        let sut = LiveAgent(executor: AgentExecutor(backend: StubBackend()))
+        let sut = AgentService(executor: AgentExecutor(backend: StubBackend()))
         let settings = AgentSessionSettings(model: "claude", permissionMode: "yolo")
 
         // When / Then

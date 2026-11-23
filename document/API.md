@@ -951,7 +951,8 @@ conversation started. `context_tokens` is the conversation's size as its last
 turn ended (what that turn's last request carried in, cached or not), absent
 until a turn reports one and again after a compaction until the next turn
 measures it. `compact` is whether the daemon compacts the session as it grows,
-and `compactions` how many times it has. `needs_setup` is whether the
+and `compactions` how many times the conversation was compacted, by the
+daemon or by a turn. `needs_setup` is whether the
 conversation holds no context an `invoke`'s `setup` built: it is new or was
 compacted since one ran. `held` is whether an `invoke` holds the session now, and
 `waiting` how many wait behind it.

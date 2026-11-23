@@ -199,7 +199,10 @@ expired, so the turn would read all of it at full price. The size is what the
 last turn's final request carried in; a backend that reports none is not
 compacted. `compact: false` makes a session the daemon never compacts, and
 like `model` it is the session's: a kept session keeps the one it was made
-with. The daemon logs `session.compacted` with the reason, `limit` or `cold`.
+with. A turn can compact the conversation too: the backend on reaching its
+own limit, or the prompt the turn carried (`/compact` to `claude`), and such
+a turn may end with no text. The daemon logs `session.compacted` with the
+reason: `limit`, `cold`, or `turn` for one a turn did.
 A backend that cannot compact fails the turn with `BackendCompactionUnavailable`.
 The `claude` backend compacts, and its cache stands for an hour.
 

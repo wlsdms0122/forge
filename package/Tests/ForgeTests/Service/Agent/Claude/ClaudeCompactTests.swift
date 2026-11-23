@@ -26,15 +26,17 @@ struct ClaudeCompactTests {
     // MARK: - Initializer
     // MARK: - Lifecycle
     // MARK: - Test
-    @Test("compact resumes the session's conversation with the compact command")
-    func compactResumesTheConversationWithTheCompactCommand() async throws {
+    @Test("compact sends the compact command as a turn of the session")
+    func compactSendsTheCompactCommandAsATurn() async throws {
         // Given
         let directory = try temporary.make("compact")
         let sut = ClaudeBackend(executable: try fakeClaude(in: directory, frames: Self.compacted).path)
         let session = ClaudeSession(sessionID: "S-1", turnIndex: 3, established: true)
         
         // When
-        try await sut.compact(session, agent: try Agent(model: "claude:haiku"))
+        let response = try await sut.compact(session) { prompt in
+            try await sut.invoke(Self.invocation(prompt, in: session))
+        }
         
         // Then
         let arguments = try String(contentsOf: directory.appendingPathComponent("arguments"), encoding: .utf8)
@@ -43,35 +45,44 @@ struct ClaudeCompactTests {
         
         #expect(arguments.contains("/compact"))
         #expect(arguments.firstIndex(of: "--resume").map { index in arguments[index + 1] } == "S-1")
-        #expect(session.turnIndex == 3)
+        #expect(response.isCompacted)
+        #expect(response.contextTokens == nil)
     }
     
-    @Test("a compact turn that cut nothing fails as a protocol violation")
-    func compactTurnWithoutABoundaryFails() async throws {
+    @Test("a compact turn that cut nothing answers as not compacted")
+    func compactTurnWithoutABoundaryAnswersAsNotCompacted() async throws {
         // Given
         let sut = ClaudeBackend(executable: try fakeClaude(in: try temporary.make("refused"), frames: Self.refused).path)
         let session = ClaudeSession(sessionID: "S-1", turnIndex: 3, established: true)
         
-        // When / Then
-        await #expect(throws: BackendProtocolViolation.self) {
-            try await sut.compact(session, agent: try Agent(model: "claude:haiku"))
-        }
-    }
-    
-    @Test("a conversation claude has not started is left alone")
-    func conversationNotStartedIsLeftAlone() async throws {
-        // Given
-        let directory = try temporary.make("fresh")
-        let sut = ClaudeBackend(executable: try fakeClaude(in: directory, frames: Self.refused).path)
-        
         // When
-        try await sut.compact(ClaudeSession(sessionID: "S-1"), agent: try Agent(model: "claude:haiku"))
+        let response = try await sut.compact(session) { prompt in
+            try await sut.invoke(Self.invocation(prompt, in: session))
+        }
         
         // Then
-        #expect(!FileManager.default.fileExists(atPath: directory.appendingPathComponent("arguments").path))
+        #expect(!response.isCompacted)
+    }
+    
+    @Test("the compact command sent as a prompt compacts as compact does")
+    func compactCommandSentAsAPromptCompacts() async throws {
+        // Given
+        let sut = ClaudeBackend(executable: try fakeClaude(in: try temporary.make("prompt"), frames: Self.compacted).path)
+        let session = ClaudeSession(sessionID: "S-1", turnIndex: 3, established: true)
+        
+        // When
+        let response = try await sut.invoke(Self.invocation("/compact", in: session))
+        
+        // Then
+        #expect(response.isCompacted)
+        #expect(response.text.isEmpty)
     }
     
     // MARK: - Private
+    private static func invocation(_ prompt: String, in session: ClaudeSession) throws -> AgentInvocation {
+        AgentInvocation(id: "compact", agent: try Agent(model: "claude:haiku"), prompt: prompt, session: session)
+    }
+    
     // A claude that writes its arguments, one a line, beside itself and answers with the frames.
     private func fakeClaude(in directory: URL, frames: String) throws -> URL {
         let executable = directory.appendingPathComponent("fakeclaude")

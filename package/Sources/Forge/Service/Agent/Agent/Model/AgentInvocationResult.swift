@@ -35,6 +35,17 @@ struct AgentInvocationResult: Sendable, Equatable {
         self.isCompacted = isCompacted
     }
 
+    init(_ response: BackendResponse, durationMs: Int) {
+        self.init(
+            text: response.text,
+            usage: response.usage,
+            toolEvents: response.toolEvents,
+            durationMs: durationMs,
+            contextTokens: response.contextTokens,
+            isCompacted: response.isCompacted
+        )
+    }
+
     // MARK: - Public
     // MARK: - Private
 }

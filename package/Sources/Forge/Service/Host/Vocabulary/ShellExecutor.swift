@@ -1,5 +1,5 @@
 //
-//  LiveShell.swift
+//  ShellExecutor.swift
 //  Forge
 //
 //  Created by JSilver on 8/9/26.
@@ -9,7 +9,7 @@ import Foundation
 
 // The live process seam — `Subprocess` already terminates the process tree on
 // task cancellation, which is what the seam contract demands.
-struct LiveShell: ShellExecuting {
+struct ShellExecutor: ShellExecuting {
     // MARK: - Property
     // MARK: - Initializer
     // MARK: - Public

@@ -292,9 +292,9 @@ struct WorkflowDispatchTests {
             workRegistry: registry,
             tokenAuthority: authority,
             capabilities: CapabilitySet(
-                shell: LiveShell(),
-                agent: LiveAgent(executor: AgentExecutor(backend: StubBackend())),
-                resources: LiveResources(workingDirectory: WorkingDirectory(directory: nil))
+                shell: ShellExecutor(),
+                agent: AgentService(executor: AgentExecutor(backend: StubBackend())),
+                resources: ResourceReader(workingDirectory: WorkingDirectory(directory: nil))
             ))
         let method = WorkflowDispatchMethod(runner: runner, workflows: reader,
             workRegistry: registry)
@@ -339,9 +339,9 @@ struct WorkflowDispatchTests {
             workRegistry: registry,
             tokenAuthority: authority,
             capabilities: CapabilitySet(
-                shell: LiveShell(),
-                agent: LiveAgent(executor: AgentExecutor(backend: StubBackend("noop"))),
-                resources: LiveResources(workingDirectory: WorkingDirectory(directory: nil))
+                shell: ShellExecutor(),
+                agent: AgentService(executor: AgentExecutor(backend: StubBackend("noop"))),
+                resources: ResourceReader(workingDirectory: WorkingDirectory(directory: nil))
             ))
         let method = WorkflowDispatchMethod(runner: runner, workflows: reader,
             workRegistry: registry)

@@ -1,5 +1,5 @@
 //
-//  LiveAgentCompactionTests.swift
+//  AgentServiceCompactionTests.swift
 //  ForgeTests
 //
 //  Created by JSilver on 11/22/26.
@@ -9,8 +9,8 @@ import Foundation
 import Testing
 @testable import Forge
 
-@Suite("LiveAgent Compaction Tests")
-struct LiveAgentCompactionTests {
+@Suite("AgentService Compaction Tests")
+struct AgentServiceCompactionTests {
     // MARK: - Property
     private let temporary = TemporaryDirectory("liveagent-compaction")
     
@@ -162,14 +162,60 @@ struct LiveAgentCompactionTests {
         #expect(record.compactions == 0)
     }
     
+    @Test("a compaction that leaves the conversation as it was fails the turn")
+    func compactionThatCutNothingFailsTheTurn() async throws {
+        // Given
+        let directory = try temporary.make("uncut")
+        let backend = TranscriptBackend(compacts: false)
+        let sut = Self.agent(backend, directory, contextLimit: 500)
+        let name = try SessionName("kept")
+        
+        // When / Then
+        await #expect(throws: BackendProtocolViolation.self) {
+            _ = try await sut.withSession(AgentSessionSettings(session: name)) {
+                _ = try await sut.send(prompt: "one")
+                
+                return .string(try await sut.send(prompt: "two"))
+            }
+        }
+        
+        let record = try #require(try await SessionStore(directory: directory).record(name))
+        
+        #expect(record.compactions == 0)
+        #expect(record.turns == 1)
+    }
+    
+    @Test("a turn that compacts the conversation is recorded as a compaction")
+    func turnThatCompactsIsRecordedAsACompaction() async throws {
+        // Given
+        let directory = try temporary.make("during")
+        let backend = TranscriptBackend(overflowingPrompt: "two")
+        let sut = Self.agent(backend, directory)
+        let name = try SessionName("kept")
+        
+        // When
+        _ = try await sut.withSession(AgentSessionSettings(session: name)) {
+            _ = try await sut.send(prompt: "one")
+            
+            return .string(try await sut.send(prompt: "two"))
+        }
+        
+        // Then
+        let record = try #require(try await SessionStore(directory: directory).record(name))
+        
+        #expect(backend.compactions.elements.isEmpty)
+        #expect(record.compactions == 1)
+        #expect(record.turns == 2)
+    }
+    
     // MARK: - Private
     private static func agent(
         _ backend: any Backend,
         _ directory: URL,
         contextLimit: Int = 250_000,
         coldCompactFloor: Int = 80_000
-    ) -> LiveAgent {
-        LiveAgent(
+    ) -> AgentService {
+        AgentService(
             executor: AgentExecutor(backend: backend),
             sessions: SessionStore(directory: directory),
             limits: ForgeConfig.SessionConfig(contextLimit: contextLimit, coldCompactFloor: coldCompactFloor)

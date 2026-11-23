@@ -1,5 +1,5 @@
 //
-//  LiveResources.swift
+//  ResourceReader.swift
 //  Forge
 //
 //  Created by JSilver on 8/9/26.
@@ -9,7 +9,7 @@ import Foundation
 import Warp
 
 // The live resource seam over the daemon's working directory.
-struct LiveResources: ResourceReading {
+struct ResourceReader: ResourceReading {
     // MARK: - Property
     let workingDirectory: WorkingDirectory
 

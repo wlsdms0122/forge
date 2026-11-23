@@ -39,12 +39,6 @@ struct ClaudeBackend: Backend {
                 "claude successful turn omitted its terminal result envelope\(location)"
             )
         }
-        
-        guard !parsed.finalText.isEmpty || !parsed.toolEvents.isEmpty else {
-            throw BackendProtocolViolation(
-                "claude successful turn observed neither text nor a tool call\(location)"
-            )
-        }
     }
     
     static func failureDetail(stderr: String, stdout: String) -> String {
@@ -168,27 +162,11 @@ struct ClaudeBackend: Backend {
         return ClaudeSession(sessionID: sessionID, turnIndex: turnIndex, established: true)
     }
     
-    func compact(_ session: any BackendSession, agent: Agent) async throws {
-        guard let session = session as? ClaudeSession else {
-            throw BackendCompactionUnavailable("the session is not one claude opened")
-        }
-        
-        // A conversation claude has not started holds nothing to compact.
-        guard session.established else { return }
-        
-        let output = try await run(
-            "/compact",
-            in: session,
-            configuration: try translator.translate(agent).value
-        )
-        
-        // A compact turn carries neither text nor a tool call, so what tells it
-        // worked is the boundary claude writes where the conversation was cut.
-        guard output.parsed.sawCompaction else {
-            throw BackendProtocolViolation(
-                "claude compact turn reported no compaction (session \(session.sessionID))"
-            )
-        }
+    func compact(
+        _ session: any BackendSession,
+        turn: @Sendable (String) async throws -> BackendResponse
+    ) async throws -> BackendResponse {
+        try await turn("/compact")
     }
     
     // MARK: - Private
