@@ -104,6 +104,81 @@ struct StreamJSONReaderTests {
         #expect(sut.snapshot().contextTokens == 24800)
     }
 
+    @Test("a subagent's request is not the conversation's size")
+    func subagentRequestIsNotTheSize() {
+        // Given
+        let sut = StreamJSON.Reader()
+
+        // When
+        sut.feed(
+            line: #"{"type":"assistant","parent_tool_use_id":null,"message":{"content":[],"usage":{"input_tokens":2,"cache_read_input_tokens":22261}}}"#,
+            at: .fixture
+        )
+        sut.feed(
+            line: #"{"type":"assistant","parent_tool_use_id":"toolu_1","message":{"content":[],"usage":{"input_tokens":2,"cache_creation_input_tokens":14650}}}"#,
+            at: .fixture
+        )
+
+        // Then
+        #expect(sut.snapshot().contextTokens == 22263)
+    }
+
+    @Test("a message that read nothing in leaves the size as it was")
+    func messageThatReadNothingLeavesTheSize() {
+        // Given
+        let sut = StreamJSON.Reader()
+
+        // When
+        sut.feed(
+            line: #"{"type":"assistant","message":{"model":"<synthetic>","content":[{"type":"text","text":"Error: No messages to compact"}],"usage":{"input_tokens":0,"output_tokens":0}}}"#,
+            at: .fixture
+        )
+
+        // Then
+        #expect(sut.snapshot().contextTokens == nil)
+    }
+
+    @Test("a turn's usage is the count by model since the last result where claude gives one")
+    func usageIsTheCountByModelSinceTheLastResult() throws {
+        // Given
+        let sut = StreamJSON.Reader()
+
+        // When
+        sut.feed(
+            line: #"{"type":"result","result":"","usage":{"input_tokens":0,"output_tokens":0},"model_usage_since_last_result":{"haiku":{"inputTokens":2160,"outputTokens":1094,"cacheReadInputTokens":25988,"cacheCreationInputTokens":3683},"opus":{"inputTokens":10,"outputTokens":6,"cacheReadInputTokens":12,"cacheCreationInputTokens":17}}}"#,
+            at: .fixture
+        )
+        sut.feed(line: #"{"type":"result","result":"done","usage":{"input_tokens":4,"output_tokens":13}}"#, at: .fixture)
+
+        // Then
+        let usage = try #require(sut.snapshot().usage)
+
+        #expect(usage.agentUsage == AgentUsage(
+            inputTokens: 2170,
+            outputTokens: 1100,
+            cacheWriteTokens: 3700,
+            cacheReadTokens: 26000
+        ))
+    }
+
+    @Test("a turn's usage is the result's own where claude counts none by model")
+    func usageIsTheResultsOwnWithoutACountByModel() throws {
+        // Given
+        let sut = StreamJSON.Reader()
+
+        // When
+        sut.feed(
+            line: #"{"type":"result","result":"hi","usage":{"input_tokens":4,"output_tokens":13},"model_usage_since_last_result":{}}"#,
+            at: .fixture
+        )
+
+        // Then
+        let usage = try #require(sut.snapshot().usage)
+
+        #expect(usage.inputTokens == 4)
+        #expect(usage.outputTokens == 13)
+    }
+
     @Test("tool use and result each carry their own timestamp")
     func toolUseAndToolResultGetSeparateTimestamps() {
         // Given
