@@ -7,12 +7,19 @@
 
 import Foundation
 
-struct ChatMessage: Sendable, Equatable {
-    enum Role: String, Sendable, Equatable {
+struct ChatMessage: Sendable, Equatable, Codable {
+    enum Role: String, Sendable, Equatable, Codable {
         case system
         case user
         case assistant
         case tool
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case role
+        case content
+        case toolCalls = "tool_calls"
+        case toolCallID = "tool_call_id"
     }
 
     // MARK: - Property

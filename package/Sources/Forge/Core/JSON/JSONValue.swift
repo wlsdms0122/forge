@@ -64,6 +64,11 @@ package indirect enum JSONValue: Sendable, Codable, Equatable {
         self = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(value))
     }
     
+    // The value a `Decodable` reads from this one.
+    package func decoded<Value: Decodable>(as type: Value.Type = Value.self) throws -> Value {
+        try JSONDecoder().decode(type, from: JSONEncoder().encode(self))
+    }
+    
     package init(from decoder: Decoder) throws {
         let container = try decoder.singleValueContainer()
         
