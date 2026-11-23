@@ -81,13 +81,17 @@ struct AgentServiceLifecycleTests {
         // Given
         let backend = TranscriptBackend()
         let sut = Self.agent(backend, try temporary.make("compacted"), contextLimit: 2500)
+        let settings = AgentSessionSettings(session: try SessionName("kept"))
+        
+        _ = try await sut.withSession(settings, lifecycle: Self.boot(sut)) {
+            _ = try await sut.send(prompt: "one")
+            
+            return .string(try await sut.send(prompt: "two"))
+        }
         
         // When
-        let reply = try await sut.withSession(AgentSessionSettings(), lifecycle: Self.boot(sut)) {
-            _ = try await sut.send(prompt: "one")
-            _ = try await sut.send(prompt: "two")
-            
-            return .string(try await sut.send(prompt: "three"))
+        let reply = try await sut.withSession(settings, lifecycle: Self.boot(sut)) {
+            .string(try await sut.send(prompt: "three"))
         }
         
         // Then
@@ -205,11 +209,15 @@ struct AgentServiceLifecycleTests {
         let slots = SingleStepSlot()
         let boot: @Sendable () async throws -> Void = { _ = try await sut.send(prompt: "boot", slots: slots) }
         
+        let settings = AgentSessionSettings(session: try SessionName("kept"))
+        
+        _ = try await sut.withSession(settings, lifecycle: AgentSessionLifecycle(onContextStart: boot)) {
+            .string(try await sut.send(prompt: "one", slots: slots))
+        }
+        
         // When
-        let reply = try await sut.withSession(AgentSessionSettings(), lifecycle: AgentSessionLifecycle(onContextStart: boot)) {
-            _ = try await sut.send(prompt: "one", slots: slots)
-            
-            return .string(try await sut.send(prompt: "two", slots: slots))
+        let reply = try await sut.withSession(settings, lifecycle: AgentSessionLifecycle(onContextStart: boot)) {
+            .string(try await sut.send(prompt: "two", slots: slots))
         }
         
         // Then

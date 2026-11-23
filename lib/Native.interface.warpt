@@ -1,5 +1,10 @@
 (interface "0.1")
 
+(enum Forge.Compaction
+  (case auto)
+  (case limit (field tokens Int))
+  (case none))
+
 (struct Forge.Origin
   (field id (optional String))
   (field kind String))
@@ -46,7 +51,7 @@
   (parameter session (type (optional String)))
   (parameter on_session_start (type (optional (procedure (parameters) (failing (anything)) (returns Null)))))
   (parameter on_context_start (type (optional (procedure (parameters) (failing (anything)) (returns Null)))))
-  (parameter compact (type Bool))
+  (parameter compact (type Forge.Compaction))
   (parameter timeout (type (optional Double)))
   (parameter body (type (procedure (parameters) (failing (anything)) (returns (some Result)))))
   (returns (some Result))

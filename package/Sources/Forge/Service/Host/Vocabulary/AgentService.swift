@@ -212,7 +212,7 @@ struct AgentService: AgentServing {
         return AgentSession(
             agent: agent,
             backend: backend,
-            compacts: settings.compact,
+            compaction: settings.compact,
             handle: backend.openSession(),
             keeping: .none
         )
@@ -257,7 +257,7 @@ struct AgentService: AgentServing {
         return AgentSession(
             agent: agent,
             backend: backend,
-            compacts: record.compact,
+            compaction: record.compact,
             handle: try backend.session(from: record.handle),
             keeping: .record(record, name: name, isConfirmed: false),
             contextTokens: record.contextTokens,
@@ -391,9 +391,16 @@ struct AgentService: AgentServing {
         try await keep(session) { _ in }
     }
 
-    // A turn into a conversation past the daemon's sizes compacts it first.
+    // An invoke that takes up a kept conversation past its sizes compacts it
+    // before the first turn. Once the invoke has a turn in it, the body's
+    // turns stand on one another and the conversation is left whole.
     private func compactIfDue(_ session: AgentSession, slots: any StepSlotProviding) async throws {
-        guard session.compacts, let reason = compactionReason(for: session) else { return }
+        guard
+            case .record(_, _, isConfirmed: false) = session.keeping,
+            let reason = compactionReason(for: session)
+        else {
+            return
+        }
 
         try await compact(session, for: reason, slots: slots)
     }
@@ -445,7 +452,20 @@ struct AgentService: AgentServing {
     private func compactionReason(for session: AgentSession) -> CompactionReason? {
         guard let size = session.contextTokens else { return nil }
 
-        if size > limits.contextLimit { return .limit }
+        let limit: Int
+
+        switch session.compaction {
+        case .automatic:
+            limit = limits.contextLimit
+
+        case .none:
+            return nil
+
+        case let .limit(own):
+            limit = own
+        }
+
+        if size > limit { return .limit }
 
         guard
             size > limits.coldCompactFloor,

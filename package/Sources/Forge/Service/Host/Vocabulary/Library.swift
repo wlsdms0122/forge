@@ -64,7 +64,7 @@ enum Library {
               - session: { type: String?, hint: "the name of a session kept past this invoke, made where there is none; left out, the session ends with the invoke" }
               - on_session_start: { type: "(() throws -> Null)?", hint: "run inside the session before a turn once the backend has opened it: the session is new, or the conversation a kept one named was gone" }
               - on_context_start: { type: "(() throws -> Null)?", hint: "what builds the session's context; run inside the session before a turn whenever the conversation holds none of it: the session started, or was compacted since this last ran" }
-              - compact: { type: Bool, default: true, hint: "compact the session before a turn once it has grown past the daemon's sizes; the session's own where it already exists" }
+              - compact: { type: Forge.Compaction, default: { case: auto }, hint: "when the daemon compacts a kept session as an invoke takes it up: auto past the daemon's sizes, none never, limit past its tokens; the session's own where it already exists" }
               - timeout: { type: Double?, hint: "seconds before the invoke fails with timeout, the wait for a held session counted" }
               - body: { type: "() throws -> some Result", hint: "the turns the session runs" }
             returns: some Result
@@ -154,6 +154,11 @@ enum Library {
     static let nativeInterface = """
         (interface "0.1")
         
+        (enum Forge.Compaction
+          (case auto)
+          (case limit (field tokens Int))
+          (case none))
+        
         (struct Forge.Origin
           (field id (optional String))
           (field kind String))
@@ -200,7 +205,7 @@ enum Library {
           (parameter session (type (optional String)))
           (parameter on_session_start (type (optional (procedure (parameters) (failing (anything)) (returns Null)))))
           (parameter on_context_start (type (optional (procedure (parameters) (failing (anything)) (returns Null)))))
-          (parameter compact (type Bool))
+          (parameter compact (type Forge.Compaction))
           (parameter timeout (type (optional Double)))
           (parameter body (type (procedure (parameters) (failing (anything)) (returns (some Result)))))
           (returns (some Result))

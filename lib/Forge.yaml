@@ -51,7 +51,7 @@ procedures:
       - session: { type: String?, hint: "the name of a session kept past this invoke, made where there is none; left out, the session ends with the invoke" }
       - on_session_start: { type: "(() throws -> Null)?", hint: "run inside the session before a turn once the backend has opened it: the session is new, or the conversation a kept one named was gone" }
       - on_context_start: { type: "(() throws -> Null)?", hint: "what builds the session's context; run inside the session before a turn whenever the conversation holds none of it: the session started, or was compacted since this last ran" }
-      - compact: { type: Bool, default: true, hint: "compact the session before a turn once it has grown past the daemon's sizes; the session's own where it already exists" }
+      - compact: { type: Forge.Compaction, default: { case: auto }, hint: "when the daemon compacts a kept session as an invoke takes it up: auto past the daemon's sizes, none never, limit past its tokens; the session's own where it already exists" }
       - timeout: { type: Double?, hint: "seconds before the invoke fails with timeout, the wait for a held session counted" }
       - body: { type: "() throws -> some Result", hint: "the turns the session runs" }
     returns: some Result

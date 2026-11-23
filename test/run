@@ -317,8 +317,8 @@ def main():
         check("e2e/kept" not in harness.forge("session", "list"),
               "a session unused past the retention is dropped", harness.forge("session", "list"))
 
-        # Compaction: a session past the context limit is compacted before
-        # its next turn, and stays the same conversation.
+        # Compaction: a session past the context limit is compacted as the
+        # next run takes it up, and stays the same conversation.
         grown = stub_sessions(harness.forge("workflow", "dispatch", "grow.yaml"))
         shown = harness.forge("session", "show", "e2e/grown", "--json").replace(" ", "")
         check('"context_tokens":300000' in shown and '"compactions":0' in shown,
@@ -326,14 +326,14 @@ def main():
         regrown = harness.forge("workflow", "dispatch", "grow.yaml")
         shown = harness.forge("session", "show", "e2e/grown", "--json").replace(" ", "")
         check("stub[resume:" in regrown and stub_sessions(regrown) == grown and '"compactions":1' in shown,
-              "a session past the context limit is compacted before its next turn", regrown + shown)
+              "a session past the context limit is compacted as the next run takes it up", regrown + shown)
         harness.forge("session", "delete", "e2e/grown")
 
         # A compaction the workflow asks for, in a session the daemon leaves alone.
         asked = harness.forge("workflow", "dispatch", "ask.yaml")
         shown = harness.forge("session", "show", "e2e/asked", "--json").replace(" ", "")
-        check("true" in asked and '"compact":false' in shown and '"compactions":1' in shown,
-              "a compact step compacts a session made with compact off", asked + shown)
+        check("true" in asked and '"compact":"none"' in shown and '"compactions":1' in shown,
+              "a compact step compacts a session made with compact none", asked + shown)
         harness.forge("session", "delete", "e2e/asked")
 
         # Lifecycle: a session and its context start before its first turn,

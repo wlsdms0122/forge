@@ -17,31 +17,78 @@ struct AgentServiceCompactionTests {
     // MARK: - Initializer
     // MARK: - Lifecycle
     // MARK: - Test
-    @Test("a session past the context limit is compacted before its next turn")
-    func sessionPastTheLimitIsCompactedBeforeItsNextTurn() async throws {
+    @Test("a kept session past the context limit is compacted as the next invoke takes it up")
+    func sessionPastTheLimitIsCompactedAsTheNextInvokeTakesItUp() async throws {
         // Given
         let directory = try temporary.make("limit")
         let backend = TranscriptBackend()
         let sut = Self.agent(backend, directory, contextLimit: 2500)
         let name = try SessionName("kept")
         
-        // When
-        let reply = try await sut.withSession(AgentSessionSettings(session: name)) {
+        _ = try await sut.withSession(AgentSessionSettings(session: name)) {
             _ = try await sut.send(prompt: "one")
             _ = try await sut.send(prompt: "two")
-            _ = try await sut.send(prompt: "three")
             
-            return .string(try await sut.send(prompt: "four"))
+            return .string(try await sut.send(prompt: "three"))
+        }
+        
+        // When
+        let reply = try await sut.withSession(AgentSessionSettings(session: name)) {
+            _ = try await sut.send(prompt: "four")
+            
+            return .string(try await sut.send(prompt: "five"))
         }
         
         // Then
         let record = try #require(try await SessionStore(directory: directory).record(name))
         
-        #expect(reply == .string("…,four"))
+        #expect(reply == .string("…,four,five"))
         #expect(backend.compactions.elements.count == 1)
         #expect(record.compactions == 1)
-        #expect(record.contextTokens == 2000)
-        #expect(record.turns == 4)
+        #expect(record.turns == 5)
+    }
+    
+    @Test("the turns of one invoke are not compacted apart, however large they grow")
+    func turnsOfOneInvokeAreNotCompactedApart() async throws {
+        // Given
+        let directory = try temporary.make("body")
+        let backend = TranscriptBackend()
+        let sut = Self.agent(backend, directory, contextLimit: 500)
+        let name = try SessionName("kept")
+        
+        // When
+        let reply = try await sut.withSession(AgentSessionSettings(session: name)) {
+            _ = try await sut.send(prompt: "one")
+            _ = try await sut.send(prompt: "two")
+            
+            return .string(try await sut.send(prompt: "three"))
+        }
+        
+        // Then
+        #expect(reply == .string("one,two,three"))
+        #expect(backend.compactions.elements.isEmpty)
+    }
+    
+    @Test("a session made with a size of its own is compacted past that one")
+    func sessionWithItsOwnLimitIsCompactedPastIt() async throws {
+        // Given
+        let directory = try temporary.make("own")
+        let backend = TranscriptBackend()
+        let sut = Self.agent(backend, directory)
+        let name = try SessionName("kept")
+        
+        _ = try await sut.withSession(AgentSessionSettings(session: name, compact: .limit(500))) {
+            .string(try await sut.send(prompt: "one"))
+        }
+        
+        // When
+        let reply = try await sut.withSession(AgentSessionSettings(session: name)) {
+            .string(try await sut.send(prompt: "two"))
+        }
+        
+        // Then
+        #expect(reply == .string("…,two"))
+        #expect(backend.compactions.elements.count == 1)
     }
     
     @Test("a session whose cache has expired is compacted past the cold floor")
@@ -100,7 +147,7 @@ struct AgentServiceCompactionTests {
         #expect(backend.compactions.elements.isEmpty)
     }
     
-    @Test("a session made with compact off is never compacted, whatever a later invoke asks")
+    @Test("a session made with compact none is never compacted, whatever a later invoke asks")
     func sessionMadeWithCompactOffIsNeverCompacted() async throws {
         // Given
         let directory = try temporary.make("off")
@@ -108,12 +155,12 @@ struct AgentServiceCompactionTests {
         let sut = Self.agent(backend, directory, contextLimit: 500)
         let name = try SessionName("kept")
         
-        _ = try await sut.withSession(AgentSessionSettings(session: name, compact: false)) {
+        _ = try await sut.withSession(AgentSessionSettings(session: name, compact: .none)) {
             .string(try await sut.send(prompt: "one"))
         }
         
         // When
-        let reply = try await sut.withSession(AgentSessionSettings(session: name, compact: true)) {
+        let reply = try await sut.withSession(AgentSessionSettings(session: name, compact: .automatic)) {
             .string(try await sut.send(prompt: "two"))
         }
         
@@ -122,8 +169,8 @@ struct AgentServiceCompactionTests {
         #expect(backend.compactions.elements.isEmpty)
     }
     
-    @Test("a session without a name is compacted past the limit as a named one is")
-    func unnamedSessionIsCompactedPastTheLimit() async throws {
+    @Test("a session without a name is never compacted by the daemon")
+    func unnamedSessionIsNotCompacted() async throws {
         // Given
         let backend = TranscriptBackend()
         let sut = Self.agent(backend, try temporary.make("unnamed"), contextLimit: 500)
@@ -136,7 +183,8 @@ struct AgentServiceCompactionTests {
         }
         
         // Then
-        #expect(reply == .string("…,two"))
+        #expect(reply == .string("one,two"))
+        #expect(backend.compactions.elements.isEmpty)
     }
     
     @Test("a kept session whose conversation is gone when it is compacted starts a new one")
@@ -170,12 +218,14 @@ struct AgentServiceCompactionTests {
         let sut = Self.agent(backend, directory, contextLimit: 500)
         let name = try SessionName("kept")
         
+        _ = try await sut.withSession(AgentSessionSettings(session: name)) {
+            .string(try await sut.send(prompt: "one"))
+        }
+        
         // When / Then
         await #expect(throws: BackendProtocolViolation.self) {
             _ = try await sut.withSession(AgentSessionSettings(session: name)) {
-                _ = try await sut.send(prompt: "one")
-                
-                return .string(try await sut.send(prompt: "two"))
+                .string(try await sut.send(prompt: "two"))
             }
         }
         
@@ -208,7 +258,7 @@ struct AgentServiceCompactionTests {
         #expect(record.turns == 2)
     }
     
-    @Test("a compact step compacts a session made with compact off")
+    @Test("a compact step compacts a session made with compact none")
     func compactStepCompactsASessionMadeWithCompactOff() async throws {
         // Given
         let directory = try temporary.make("asked")
@@ -217,7 +267,7 @@ struct AgentServiceCompactionTests {
         let name = try SessionName("kept")
         
         // When
-        let reply = try await sut.withSession(AgentSessionSettings(session: name, compact: false)) {
+        let reply = try await sut.withSession(AgentSessionSettings(session: name, compact: .none)) {
             _ = try await sut.send(prompt: "one")
             
             let isCompacted = try await sut.compact()

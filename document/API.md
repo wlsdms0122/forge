@@ -96,8 +96,8 @@ its kind does not read skips the provider as a missing one does.
 | `[log]` `maximum_bytes` | `52428800` (50 MiB) | single-file rotation threshold; ≤0 disables rotation |
 | `[pool]` `maximum_concurrent_steps` | `4` | concurrent step cap (each `shell` run and each `agent` turn holds a slot); excess queues FIFO |
 | `[pool]` `maximum_active_runs` | `256` | concurrent registered-run cap |
-| `[session]` `context_limit` | `250000` | the conversation size, in tokens, past which a session is compacted before its next turn |
-| `[session]` `cold_compact_floor` | `80000` | the size past which a session is compacted before its next turn once the backend's cache of it has expired |
+| `[session]` `context_limit` | `250000` | the conversation size, in tokens, past which a kept session is compacted as an `invoke` takes it up |
+| `[session]` `cold_compact_floor` | `80000` | the size past which a kept session is compacted as an `invoke` takes it up once the backend's cache of it has expired |
 | `[session]` `retention_days` | `7` | how long a session no `invoke` uses is kept; the daemon drops older ones as it starts and every hour, logging `session.expired`, and a dropped name starts a new conversation |
 | `[provider.<name>]` `kind` (+ settings) | one `claude` (claude-cli) | backend instances. `kind` = `claude-cli` \| `codex-cli` \| `openai-compat`. CLI kinds accept `executable` (default: the CLI's name on `PATH`); `openai-compat` requires `endpoint`, the base URL, and an Agent reference without a model leaves the choice to the endpoint. A provider without a known `kind` or a required setting, or with a setting its kind does not read, is skipped with a warning on stderr. Declaring any drops the built-in claude default, so list it explicitly alongside others. API keys via `FORGE_PROVIDER_<NAME>_API_KEY` env only. |
 | `[service.<name>]` `command` (+ `working_directory`/`environment`/`auto_spawn`/`log_file`/`restart_backoff_initial_milliseconds`/`restart_backoff_maximum_milliseconds`/`restart_crash_loop_limit`) | no service; for a declared one: `auto_spawn` `true`, `log_file` `<instanceHome>/state/services/<name>.log`, `restart_backoff_initial_milliseconds` `1000`, `restart_backoff_maximum_milliseconds` `30000`, `restart_crash_loop_limit` `5` | a managed child process forge spawns and supervises. `command` is its argv; a relative `command[0]` that contains `/` resolves against the toml's directory. A block without `command` is skipped with a warning on stderr. See CONFIG SCHEMA in `forge serve --help` |
@@ -950,7 +950,8 @@ absent where it gave none. `turns` counts the turns finished since the
 conversation started. `context_tokens` is the conversation's size as its last
 turn ended (what that turn's last request carried in, cached or not), absent
 until a turn reports one and again after a compaction until the next turn
-measures it. `compact` is whether the daemon compacts the session as it grows,
+measures it. `compact` is when the daemon compacts the session as an `invoke` takes
+it up (`"auto"`, `"none"` or a size in tokens),
 and `compactions` how many times the conversation was compacted, by the
 daemon or by a turn. `needs_session_start` is whether the
 session started and no `invoke`'s `on_session_start` has run since, and
@@ -1216,7 +1217,7 @@ The error envelope is `{"type": "<ErrorType>", "message": "<text>"}` and the fie
 | `AgentValidationError` | an `invoke`'s agent cannot be built: its model, tools or `permission_mode`, or a combination its provider cannot run; fix the workflow |
 | `SessionStoreError` | a session name is not path components of `[A-Za-z0-9._-]` (none starting with a dot or ending in `.json`), no session is kept under it, its record does not read, or it is held by a running `invoke` (`session.delete`) |
 | `BackendSessionNotKept` | an `invoke` names a `session` on a backend that does not keep one past the `invoke`; drop the name or use a backend that does |
-| `BackendCompactionUnavailable` | a session grew past the daemon's sizes on a backend that cannot compact one; give the `invoke` `compact: false` or raise `[session]` |
+| `BackendCompactionUnavailable` | a session grew past the daemon's sizes on a backend that cannot compact one; give the `invoke` `compact: { case: none }` or raise `[session]` |
 | `BackendSessionLost` | a backend no longer has the conversation a session names. An `invoke` does not surface it: taking up a kept session, the name starts a new conversation and the daemon logs `session.lost`; later in the body the turn fails with the backend's `BackendNonzeroExit` |
 | `AgentSessionMissing` | an `agent` step ran outside an `invoke`, where no agent session is open; fix the workflow |
 | `ResourceError` | a file cannot be given: a path with an empty, `.` or `..` part, a workflow path spelled `<inline>`, a `resource.read` path that is absolute, hidden or led out by a link, a missing or unreadable file |

@@ -208,7 +208,7 @@ struct SessionStoreTests {
             createdAt: "2026-11-22T09:00:00Z",
             usedAt: usedAt,
             turns: turns,
-            compact: true
+            compact: .automatic
         )
     }
 }

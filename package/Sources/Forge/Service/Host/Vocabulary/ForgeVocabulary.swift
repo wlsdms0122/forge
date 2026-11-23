@@ -20,6 +20,8 @@ struct ForgeVocabulary: Sendable {
     // The structs forge's verbs return.
     static let runType: Warp.Name = "Forge.Run"
     static let originType: Warp.Name = "Forge.Origin"
+    // When the daemon compacts a kept session, which `invoke` takes.
+    static let compactionType: Warp.Name = "Forge.Compaction"
 
     // The modules the front end is handed: the library a workflow writes
     // under `uses:`, and the native verbs the library is written over.
@@ -59,7 +61,8 @@ struct ForgeVocabulary: Sendable {
         try Module(
             types: [
                 runType: .struct(["run_id": .string, "root_id": .string]),
-                originType: .struct(["kind": .string, "id": .optional(.string)])
+                originType: .struct(["kind": .string, "id": .optional(.string)]),
+                compactionType: .enum(["auto": [:], "none": [:], "limit": ["tokens": .int]])
             ],
             procedures: [
                 "Forge.Native.shell": Procedure(signature: ShellAction.signature, implementation: ShellAction()),

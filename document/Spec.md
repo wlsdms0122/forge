@@ -129,7 +129,7 @@ is refused before the text is read, and no catch takes it.
 
 ### `Forge.invoke`
 
-`invoke(model: String?, allowed: Array<Any>?, env_extra: Dictionary<String, String>, cwd: String?, permission_mode: String?, share_session: Bool, session: String?, on_session_start: (() throws -> Null)?, on_context_start: (() throws -> Null)?, compact: Bool, timeout: Double?, body: () throws -> some Result) -> some Result`,
+`invoke(model: String?, allowed: Array<Any>?, env_extra: Dictionary<String, String>, cwd: String?, permission_mode: String?, share_session: Bool, session: String?, on_session_start: (() throws -> Null)?, on_context_start: (() throws -> Null)?, compact: Forge.Compaction, timeout: Double?, body: () throws -> some Result) -> some Result`,
 failing anything. `env_extra` defaults to an empty dictionary, `share_session` to
 `false` and `compact` to `true`.
 
@@ -202,17 +202,24 @@ holds uses that one's hooks where it brings none of its own. A hook that
 fails fails the turn it ran before, and its event stays due. The turns a
 hook sends call for no hook.
 
-A conversation grows with every turn, and each turn reads all of it. Before a
-turn the daemon compacts the session's conversation (the backend replaces it
-with a summary) in two cases: its size is past `[session] context_limit`, or
-it is past `[session] cold_compact_floor` and the backend's cache of it has
-expired, so the turn would read all of it at full price. The size is what the
-last turn's final request carried in; a backend that reports none is not
-compacted. `compact: false` makes a session the daemon never compacts, and
-like `model` it is the session's: a kept session keeps the one it was made
-with. A turn can compact the conversation too: the backend on reaching its
-own limit, or the prompt the turn carried (`/compact` to `claude`), and such
-a turn may end with no text. The daemon logs `session.compacted` with the
+A conversation grows with every turn, and each turn reads all of it. As an
+`invoke` takes up a kept session, before its first turn, the daemon compacts
+the conversation (the backend replaces it with a summary) in two cases: its
+size is past `[session] context_limit`, or it is past
+`[session] cold_compact_floor` and the backend's cache of it has expired, so
+the turn would read all of it at full price. The size is what the last
+turn's final request carried in; a backend that reports none is not
+compacted. The turns of one `invoke` stand on one another, so the daemon
+leaves the conversation whole between them: a session without a name, which
+ends with its `invoke`, is never compacted by the daemon, and a body that
+grows a conversation calls the `compact` step where it can lose the turns
+before. `compact` says when the daemon compacts the session, a case of the enum
+`Forge.Compaction`: `{ case: auto }` (the default) at the daemon's sizes,
+`{ case: none }` never, or `{ case: { limit: { tokens: 300000 } } }` past a
+size of its own in place of `context_limit`. Like `model` it is the
+session's: a kept session keeps the one it was made with. A turn can compact the conversation too: the backend
+on reaching its own limit, or the prompt the turn carried (`/compact` to
+`claude`), and such a turn may end with no text. The daemon logs `session.compacted` with the
 reason: `limit`, `cold`, `turn` for one a turn did, or `requested` for one a
 `compact` step asked for.
 A backend that cannot compact fails the turn with `BackendCompactionUnavailable`.
@@ -256,7 +263,8 @@ are `exit_code`, `stderr` and `stdout`.
 
 Compacts the conversation of the session the enclosing `invoke` opened,
 holding a step slot, whatever the session's `compact` says: it is how a
-workflow compacts a session it made with `compact: false`. `true` once the
+workflow compacts a session it made with `compact: { case: none }`, or between the
+turns of one `invoke`. `true` once the
 conversation was compacted, and `false` where there was none to compact: no
 turn has gone into the session yet. Outside a session it is refused. The
 compaction is logged as `session.compacted` with the reason `requested`, and
