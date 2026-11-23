@@ -220,8 +220,9 @@ The `claude` backend compacts its own conversation, and its cache stands for
 an hour. A `codex` or OpenAI-compatible conversation is compacted by a turn
 that asks it for a summary of itself, and the summary opens the conversation
 that takes its place. An OpenAI-compatible backend reports a size where its
-endpoint counts the request. The `codex` backend reports none, so a codex
-session is compacted only by a `compact` step.
+endpoint counts the request. The `codex` backend reads the size from the
+rollout file codex keeps for the thread under `CODEX_HOME` (`~/.codex` where
+unset), and reports none where it finds no such file.
 
 A session no `invoke` has used for `[session] retention_days` is dropped, and
 its name then starts a new conversation. A session an `invoke` holds or waits
