@@ -1,5 +1,5 @@
 //
-//  LiveAgentNamedSessionTests.swift
+//  AgentServiceNamedSessionTests.swift
 //  ForgeTests
 //
 //  Created by JSilver on 11/22/26.
@@ -10,8 +10,8 @@ import Testing
 import Warp
 @testable import Forge
 
-@Suite("LiveAgent named session Tests")
-struct LiveAgentNamedSessionTests {
+@Suite("AgentService named session Tests")
+struct AgentServiceNamedSessionTests {
     // MARK: - Property
     private let temporary = TemporaryDirectory("liveagent-session")
     
@@ -83,7 +83,7 @@ struct LiveAgentNamedSessionTests {
         let directory = try temporary.make("turns")
         let backend = TranscriptBackend()
         let store = SessionStore(directory: directory)
-        let sut = LiveAgent(executor: AgentExecutor(backend: backend), sessions: store)
+        let sut = AgentService(executor: AgentExecutor(backend: backend), sessions: store)
         let settings = AgentSessionSettings(session: try SessionName("shared"))
         let (entered, enteredSignal) = AsyncStream<Void>.makeStream()
         let (leave, leaveSignal) = AsyncStream<Void>.makeStream()
@@ -218,7 +218,7 @@ struct LiveAgentNamedSessionTests {
     func fanOutPieceCannotEnterASessionHeldAroundIt() async throws {
         // Given
         let store = SessionStore(directory: try temporary.make("fanout"))
-        let sut = LiveAgent(executor: AgentExecutor(backend: TranscriptBackend()), sessions: store)
+        let sut = AgentService(executor: AgentExecutor(backend: TranscriptBackend()), sessions: store)
         let settings = AgentSessionSettings(session: try SessionName("outer"))
         // When / Then
         await #expect(throws: RunRefused.self) {
@@ -244,7 +244,7 @@ struct LiveAgentNamedSessionTests {
         _ = try await earlier.withSession(settings) { .string(try await earlier.send(prompt: "one")) }
         
         // When
-        let sut = LiveAgent(
+        let sut = AgentService(
             executor: AgentExecutor(backends: BackendRegistry(["claude": backend, "codex": StubBackend()])),
             sessions: SessionStore(directory: directory)
         )
@@ -277,7 +277,7 @@ struct LiveAgentNamedSessionTests {
         // Given
         let store = SessionStore(directory: try temporary.make("notkept"))
         let recorder = AgentRecorder()
-        let sut = LiveAgent(executor: AgentExecutor(backend: recorder), sessions: store)
+        let sut = AgentService(executor: AgentExecutor(backend: recorder), sessions: store)
         
         // When
         await #expect(throws: BackendSessionNotKept.self) {
@@ -311,7 +311,7 @@ struct LiveAgentNamedSessionTests {
     }
     
     // MARK: - Private
-    private static func agent(_ backend: any Backend, _ directory: URL) -> LiveAgent {
-        LiveAgent(executor: AgentExecutor(backend: backend), sessions: SessionStore(directory: directory))
+    private static func agent(_ backend: any Backend, _ directory: URL) -> AgentService {
+        AgentService(executor: AgentExecutor(backend: backend), sessions: SessionStore(directory: directory))
     }
 }

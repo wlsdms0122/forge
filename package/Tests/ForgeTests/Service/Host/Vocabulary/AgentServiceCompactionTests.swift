@@ -1,5 +1,5 @@
 //
-//  LiveAgentCompactionTests.swift
+//  AgentServiceCompactionTests.swift
 //  ForgeTests
 //
 //  Created by JSilver on 11/22/26.
@@ -9,8 +9,8 @@ import Foundation
 import Testing
 @testable import Forge
 
-@Suite("LiveAgent Compaction Tests")
-struct LiveAgentCompactionTests {
+@Suite("AgentService Compaction Tests")
+struct AgentServiceCompactionTests {
     // MARK: - Property
     private let temporary = TemporaryDirectory("liveagent-compaction")
     
@@ -168,8 +168,8 @@ struct LiveAgentCompactionTests {
         _ directory: URL,
         contextLimit: Int = 250_000,
         coldCompactFloor: Int = 80_000
-    ) -> LiveAgent {
-        LiveAgent(
+    ) -> AgentService {
+        AgentService(
             executor: AgentExecutor(backend: backend),
             sessions: SessionStore(directory: directory),
             limits: ForgeConfig.SessionConfig(contextLimit: contextLimit, coldCompactFloor: coldCompactFloor)

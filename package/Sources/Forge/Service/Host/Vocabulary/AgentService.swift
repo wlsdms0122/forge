@@ -1,5 +1,5 @@
 //
-//  LiveAgent.swift
+//  AgentService.swift
 //  Forge
 //
 //  Created by JSilver on 8/9/26.
@@ -12,7 +12,7 @@ import Warp
 // `withSession` binds it to the task and `send` speaks through whatever session
 // the current task carries, so the session follows structured concurrency's
 // task-local scoping.
-struct LiveAgent: AgentServing {
+struct AgentService: AgentServing {
     // MARK: - Property
     private static let category = "session"
 

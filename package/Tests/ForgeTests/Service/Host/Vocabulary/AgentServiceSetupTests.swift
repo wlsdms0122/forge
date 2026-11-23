@@ -1,5 +1,5 @@
 //
-//  LiveAgentSetupTests.swift
+//  AgentServiceSetupTests.swift
 //  ForgeTests
 //
 //  Created by JSilver on 11/22/26.
@@ -10,8 +10,8 @@ import Testing
 import Warp
 @testable import Forge
 
-@Suite("LiveAgent Setup Tests")
-struct LiveAgentSetupTests {
+@Suite("AgentService Setup Tests")
+struct AgentServiceSetupTests {
     // MARK: - Property
     private let temporary = TemporaryDirectory("liveagent-setup")
     
@@ -303,8 +303,8 @@ struct LiveAgentSetupTests {
         _ backend: any Backend,
         _ directory: URL,
         contextLimit: Int = 250_000
-    ) -> LiveAgent {
-        LiveAgent(
+    ) -> AgentService {
+        AgentService(
             executor: AgentExecutor(backend: backend),
             sessions: SessionStore(directory: directory),
             limits: ForgeConfig.SessionConfig(contextLimit: contextLimit)
@@ -312,7 +312,7 @@ struct LiveAgentSetupTests {
     }
     
     // A setup of one turn.
-    private static func boot(_ agent: LiveAgent) -> @Sendable () async throws -> Void {
+    private static func boot(_ agent: AgentService) -> @Sendable () async throws -> Void {
         { _ = try await agent.send(prompt: "boot") }
     }
 }
