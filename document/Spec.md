@@ -174,7 +174,9 @@ with the `invoke` that opened it. A name is path components of
   the settings it was made with, and the daemon logs `session.lost`. A
   conversation lost after a turn of the `invoke` fails the turn.
 - A backend that does not keep a session past its `invoke` fails a named one
-  with `BackendSessionNotKept`. The `claude` backend keeps them.
+  with `BackendSessionNotKept`. The `claude` and `codex` backends keep them
+  by the conversation's id, and an OpenAI-compatible one keeps the whole
+  conversation in the session's record.
 - `session` with `share_session: true` is refused.
 
 A session's life has two events the body of an `invoke` cannot see, and an
@@ -214,7 +216,13 @@ a turn may end with no text. The daemon logs `session.compacted` with the
 reason: `limit`, `cold`, `turn` for one a turn did, or `requested` for one a
 `compact` step asked for.
 A backend that cannot compact fails the turn with `BackendCompactionUnavailable`.
-The `claude` backend compacts, and its cache stands for an hour.
+The `claude` backend compacts its own conversation, and its cache stands for
+an hour. A `codex` or OpenAI-compatible conversation is compacted by a turn
+that asks it for a summary of itself, and the summary opens the conversation
+that takes its place. An OpenAI-compatible backend reports a size where its
+endpoint counts the request. The `codex` backend reads the size from the
+rollout file codex keeps for the thread under `CODEX_HOME` (`~/.codex` where
+unset), and reports none where it finds no such file.
 
 A session no `invoke` has used for `[session] retention_days` is dropped, and
 its name then starts a new conversation. A session an `invoke` holds or waits
