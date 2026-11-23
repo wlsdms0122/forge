@@ -62,7 +62,8 @@ enum Library {
               - permission_mode: { type: String?, hint: "bypass, safe or restrict, the backend's own where left out" }
               - share_session: { type: Bool, default: false, hint: "reuse the session of an enclosing invoke where there is one" }
               - session: { type: String?, hint: "the name of a session kept past this invoke, made where there is none; left out, the session ends with the invoke" }
-              - setup: { type: "(() throws -> Null)?", hint: "what builds the session's context; run inside the session before a turn whenever the conversation is new or was compacted since it last ran" }
+              - on_session_start: { type: "(() throws -> Null)?", hint: "run inside the session before a turn once the backend has opened it: the session is new, or the conversation a kept one named was gone" }
+              - on_context_start: { type: "(() throws -> Null)?", hint: "what builds the session's context; run inside the session before a turn whenever the conversation holds none of it: the session started, or was compacted since this last ran" }
               - compact: { type: Bool, default: true, hint: "compact the session before a turn once it has grown past the daemon's sizes; the session's own where it already exists" }
               - timeout: { type: Double?, hint: "seconds before the invoke fails with timeout, the wait for a held session counted" }
               - body: { type: "() throws -> some Result", hint: "the turns the session runs" }
@@ -71,7 +72,7 @@ enum Library {
             result:
               call:
                 procedure: Forge.Native.invoke
-                arguments: [ { ref: model }, { ref: allowed }, { ref: env_extra }, { ref: cwd }, { ref: permission_mode }, { ref: share_session }, { ref: session }, { ref: setup }, { ref: compact }, { ref: timeout }, { ref: body } ]
+                arguments: [ { ref: model }, { ref: allowed }, { ref: env_extra }, { ref: cwd }, { ref: permission_mode }, { ref: share_session }, { ref: session }, { ref: on_session_start }, { ref: on_context_start }, { ref: compact }, { ref: timeout }, { ref: body } ]
         
           agent:
             description: One prompt turn in the session the enclosing invoke opened, holding a step slot, and the reply.
@@ -182,7 +183,8 @@ enum Library {
           (parameter permission_mode (type (optional String)))
           (parameter share_session (type Bool))
           (parameter session (type (optional String)))
-          (parameter setup (type (optional (procedure (parameters) (failing (anything)) (returns Null)))))
+          (parameter on_session_start (type (optional (procedure (parameters) (failing (anything)) (returns Null)))))
+          (parameter on_context_start (type (optional (procedure (parameters) (failing (anything)) (returns Null)))))
           (parameter compact (type Bool))
           (parameter timeout (type (optional Double)))
           (parameter body (type (procedure (parameters) (failing (anything)) (returns (some Result)))))

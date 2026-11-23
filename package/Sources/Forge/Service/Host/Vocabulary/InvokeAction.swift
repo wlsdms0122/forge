@@ -21,7 +21,8 @@ struct InvokeAction: ForgeAction {
         case permissionMode
         case shareSession
         case session
-        case setup
+        case onSessionStart
+        case onContextStart
         case compact
         case timeout
         case body
@@ -50,9 +51,15 @@ struct InvokeAction: ForgeAction {
             case .session:
                 Parameter(name: "session", type: .optional(.string))
 
-            case .setup:
+            case .onSessionStart:
                 Parameter(
-                    name: "setup",
+                    name: "on_session_start",
+                    type: .optional(.procedure(ProcedureType(returns: .null, failing: .anything)))
+                )
+
+            case .onContextStart:
+                Parameter(
+                    name: "on_context_start",
                     type: .optional(.procedure(ProcedureType(returns: .null, failing: .anything)))
                 )
 
@@ -106,22 +113,28 @@ struct InvokeAction: ForgeAction {
             throw RunRefused("invoke: session and share_session: true cannot be given together")
         }
 
-        let setup: (@Sendable () async throws -> Void)?
-
-        if case let .procedure(procedure) = invocation[.setup] {
-            setup = { _ = try await invocation.call(procedure) }
-        } else {
-            setup = nil
-        }
+        let lifecycle = AgentSessionLifecycle(
+            onSessionStart: Self.hook(.onSessionStart, of: invocation),
+            onContextStart: Self.hook(.onContextStart, of: invocation)
+        )
 
         return try await Deadline(seconds: ValueBridge.number(invocation[.timeout])).run {
-            try await environment.capabilities.agent.withSession(settings, setup: setup) {
+            try await environment.capabilities.agent.withSession(settings, lifecycle: lifecycle) {
                 try await invocation.call(body)
             }
         }
     }
 
     // MARK: - Private
+    private static func hook(
+        _ parameter: Parameters,
+        of invocation: Invocation<Self>
+    ) -> AgentSessionLifecycle.Hook? {
+        guard case let .procedure(procedure) = invocation[parameter] else { return nil }
+
+        return { _ = try await invocation.call(procedure) }
+    }
+
     // null means "unset" and stays nil, and the signature holds the rest to a list.
     private static func items(_ value: Warp.Value) -> [Warp.Value]? {
         guard case let .array(items) = value else { return nil }
