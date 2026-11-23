@@ -12,12 +12,8 @@ import Foundation
 // conversation that takes its place.
 struct SummaryCompaction {
     // MARK: - Property
-    let request = """
-        Summarize this conversation so that the work can continue from the summary alone. \
-        The conversation itself is discarded after this turn. Keep what was asked, what was \
-        decided and why, the facts and values established (names, paths, identifiers, exact \
-        strings), what was done, and what remains. Answer with the summary only and call no tools.
-        """
+    // The prompt that asks a conversation for its summary.
+    let request = CompactionPrompt.text
 
     // MARK: - Initializer
     // MARK: - Public
@@ -28,7 +24,7 @@ struct SummaryCompaction {
         replace: (String) -> Void
     ) async throws -> BackendResponse {
         let response = try await turn(request)
-        let summary = response.text.trimmingCharacters(in: .whitespacesAndNewlines)
+        let summary = summary(in: response.text)
 
         guard !summary.isEmpty else {
             throw BackendProtocolViolation(
@@ -63,4 +59,17 @@ struct SummaryCompaction {
     }
 
     // MARK: - Private
+    // The prompt asks for the summary inside `<summary>` tags after the
+    // analysis it is drawn from; an answer without them is all summary.
+    private func summary(in text: String) -> String {
+        guard
+            let open = text.range(of: "<summary>"),
+            let close = text.range(of: "</summary>", options: .backwards),
+            open.upperBound <= close.lowerBound
+        else {
+            return text.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+
+        return text[open.upperBound..<close.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 }
