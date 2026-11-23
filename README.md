@@ -300,7 +300,7 @@ lists it.
 open-package build           # the release binary, at .build/forge
 open-package test            # unit and integration suites
 open-package e2e             # build, then the release e2e gate on .build/forge
-open-package embed-library   # after editing lib/Forge.yaml
+open-package embed-library   # after editing a file in lib
 ```
 
 The e2e gate (`test/run <binary>`) boots a real daemon against the in-repo
@@ -315,7 +315,9 @@ build plugin writes it into the binary at every build, so `forge --version`,
 The library is edited in `lib/Forge.yaml`. The binary carries a copy of it,
 `Library.swift`, which `tool/embed-library.sh` writes; run it after an edit.
 `ForgeVocabularyTests` holds the copy to the file, so an edit that was not
-embedded is a red test.
+embedded is a red test. The prompt that asks a conversation for its summary,
+where the daemon compacts one its backend cannot, is `lib/Compaction.prompt.md`
+and ships the same way, as `CompactionPrompt.swift`.
 
 ```
 manifest.toml   the open-package manifest: version, requirements, commands
