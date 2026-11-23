@@ -139,7 +139,9 @@ actor UnixSocketServer {
                 
                 if clientFD < 0 {
                     if errno == EBADF || errno == EINVAL { break }
-                    if errno == EINTR { continue }
+                    // A client that left before its connection was taken is
+                    // nothing the listener failed at.
+                    if errno == EINTR || errno == ECONNABORTED { continue }
                     
                     let acceptErrno = errno
                     consecutiveFailures += 1
