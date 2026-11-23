@@ -72,6 +72,28 @@ struct CodexEventStreamTests {
         #expect(parsed.malformedLineCount == 0)
     }
     
+    @Test("a turn that ends on an empty message after a warning item is a successful one")
+    func emptyFinalMessageAfterWarningItemIsSuccessful() throws {
+        // Given
+        let raw = #"""
+        {"type":"thread.started","thread_id":"01a20707-d819-75f0-ad2c-3a5ee40d7d1f"}
+        {"type":"item.completed","item":{"id":"item_0","type":"error","message":"`[features].multi_agent` is deprecated"}}
+        {"type":"item.completed","item":{"id":"item_1","type":"agent_message","text":"Running the command once."}}
+        {"type":"item.completed","item":{"id":"item_2","type":"command_execution","command":"/bin/zsh -lc date","aggregated_output":"Mon Nov 23 15:13:16 KST 2026\n","exit_code":0,"status":"completed"}}
+        {"type":"item.completed","item":{"id":"item_3","type":"agent_message","text":""}}
+        {"type":"turn.completed","usage":{"input_tokens":42458,"cached_input_tokens":21120,"cache_write_input_tokens":0,"output_tokens":79,"reasoning_output_tokens":47}}
+        """#
+
+        // When
+        let sut = CodexEventStream.parse(raw)
+
+        // Then
+        try CodexBackend.validateSuccessfulProtocol(sut)
+        #expect(sut.finalText == "")
+        #expect(sut.failure == nil)
+        #expect(sut.toolEvents.count == 1)
+    }
+    
     @Test("accepts unknown events, counting only broken lines")
     func countsMalformedProtocolLinesWithoutRejectingUnknownEvents() {
         // Given
