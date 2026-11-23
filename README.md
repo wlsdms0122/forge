@@ -134,9 +134,10 @@ a reviewer or a chat thread without talking over each other.
 
 A kept dialogue grows, so the daemon compacts it before a turn once it is
 past a size, or past a smaller one when the backend's cache of it has gone
-cold. An `invoke` may bring a `setup`, the turns that build the session's
-context; the daemon runs it when the dialogue is new or was compacted, and
-the workflow never asks which.
+cold. An `invoke` may bring `on_context_start`, the turns that build the
+session's context; the daemon runs it when the dialogue is new or was
+compacted, and the workflow never asks which. `on_session_start` runs once
+for each session the backend opens.
 
 ## Philosophy
 

@@ -129,7 +129,7 @@ is refused before the text is read, and no catch takes it.
 
 ### `Forge.invoke`
 
-`invoke(model: String?, allowed: Array<Any>?, env_extra: Dictionary<String, String>, cwd: String?, permission_mode: String?, share_session: Bool, session: String?, setup: (() throws -> Null)?, compact: Bool, timeout: Double?, body: () throws -> some Result) -> some Result`,
+`invoke(model: String?, allowed: Array<Any>?, env_extra: Dictionary<String, String>, cwd: String?, permission_mode: String?, share_session: Bool, session: String?, on_session_start: (() throws -> Null)?, on_context_start: (() throws -> Null)?, compact: Bool, timeout: Double?, body: () throws -> some Result) -> some Result`,
 failing anything. `env_extra` defaults to an empty dictionary, `share_session` to
 `false` and `compact` to `true`.
 
@@ -177,19 +177,28 @@ with the `invoke` that opened it. A name is path components of
   with `BackendSessionNotKept`. The `claude` backend keeps them.
 - `session` with `share_session: true` is refused.
 
-`setup` is a closure that builds the session's context: what the agent must
-have read or done before the turns of a body mean anything to it. The daemon
-calls it inside the session before a turn whenever the conversation holds
-none of that context: the session is new, the conversation was compacted,
-by the daemon or by the backend, or it was lost and started over. A kept
-session that was set up is not set up again by the next `invoke`, so a
-workflow writes its setup once and does not ask whether the session is new.
-The setup is the `invoke`'s, not the session's. An `invoke` without one sends
-its turns as they are and leaves the session in need of one, and the next
-`invoke` that brings a setup runs it. An `invoke` that joins a session an
-`invoke` around it holds uses that one's setup unless it brings its own. A
-setup that fails fails the turn it ran before, and the session stays in need
-of one.
+A session's life has two events the body of an `invoke` cannot see, and an
+`invoke` may bring a closure, a hook, for each. The daemon calls a hook
+inside the session, before a turn, once its event has happened and no hook
+has run for it since.
+
+- `on_session_start`: the backend opened the session. The session is new,
+  with a name or without, or the conversation a kept one named was gone and
+  it started over.
+- `on_context_start`: the conversation holds none of the context the hook
+  builds, what the agent must have read or done before the turns of a body
+  mean anything to it. The session started, or the conversation was
+  compacted, by the daemon or by a turn.
+
+Where both are due `on_session_start` runs first. A kept session whose hooks
+ran does not run them again on the next `invoke`, so a workflow writes them
+once and does not ask whether the session is new. The hooks are the
+`invoke`'s, not the session's. An `invoke` without one for an event sends its
+turns as they are and leaves the event due, and the next `invoke` that
+brings one runs it. An `invoke` that joins a session an `invoke` around it
+holds uses that one's hooks where it brings none of its own. A hook that
+fails fails the turn it ran before, and its event stays due. The turns a
+hook sends call for no hook.
 
 A conversation grows with every turn, and each turn reads all of it. Before a
 turn the daemon compacts the session's conversation (the backend replaces it
