@@ -72,6 +72,38 @@ struct StreamJSONReaderTests {
         #expect(sut.snapshot().contextTokens == nil)
     }
 
+    @Test("what a request before a compact boundary read is not the size after it")
+    func usageBeforeACompactBoundaryIsNotTheSize() {
+        // Given
+        let sut = StreamJSON.Reader()
+
+        // When
+        sut.feed(
+            line: #"{"type":"assistant","message":{"content":[],"usage":{"input_tokens":56000}}}"#,
+            at: .fixture
+        )
+        sut.feed(line: #"{"type":"system","subtype":"compact_boundary"}"#, at: .fixture)
+
+        // Then
+        #expect(sut.snapshot().contextTokens == nil)
+    }
+
+    @Test("a request after a compact boundary measures the size again")
+    func usageAfterACompactBoundaryIsTheSize() {
+        // Given
+        let sut = StreamJSON.Reader()
+
+        // When
+        sut.feed(line: #"{"type":"system","subtype":"compact_boundary"}"#, at: .fixture)
+        sut.feed(
+            line: #"{"type":"assistant","message":{"content":[],"usage":{"input_tokens":24800}}}"#,
+            at: .fixture
+        )
+
+        // Then
+        #expect(sut.snapshot().contextTokens == 24800)
+    }
+
     @Test("tool use and result each carry their own timestamp")
     func toolUseAndToolResultGetSeparateTimestamps() {
         // Given

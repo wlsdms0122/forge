@@ -34,15 +34,22 @@ final class TranscriptBackend: Backend, @unchecked Sendable {
     let cacheLifetime: Duration?
     // The prompt whose turn the backend compacts its conversation during.
     let overflowingPrompt: String?
+    // Whether a compaction this backend is asked for cuts the conversation.
+    let compacts: Bool
     
     private let lock = NSLock()
     private var transcripts: [String: [String]] = [:]
     private var opened: Set<String> = []
     
     // MARK: - Initializer
-    init(cacheLifetime: Duration? = .seconds(3600), overflowingPrompt: String? = nil) {
+    init(
+        cacheLifetime: Duration? = .seconds(3600),
+        overflowingPrompt: String? = nil,
+        compacts: Bool = true
+    ) {
         self.cacheLifetime = cacheLifetime
         self.overflowingPrompt = overflowingPrompt
+        self.compacts = compacts
     }
     
     // MARK: - Public
@@ -99,7 +106,10 @@ final class TranscriptBackend: Backend, @unchecked Sendable {
         return Session(id: id)
     }
     
-    func compact(_ session: any BackendSession, agent: Agent) async throws {
+    func compact(
+        _ session: any BackendSession,
+        turn: @Sendable (String) async throws -> BackendResponse
+    ) async throws -> BackendResponse {
         guard let session = session as? Session else {
             throw BackendCompactionUnavailable("the session is not a transcript session")
         }
@@ -112,10 +122,12 @@ final class TranscriptBackend: Backend, @unchecked Sendable {
                 )
             }
             
-            transcripts[session.id] = ["…"]
+            if compacts { transcripts[session.id] = ["…"] }
         }
         
         compactions.append(session.id)
+        
+        return BackendResponse(text: "", durationMs: 1, isCompacted: compacts)
     }
     
     // Drops every conversation, as a backend whose own storage was cleared.
