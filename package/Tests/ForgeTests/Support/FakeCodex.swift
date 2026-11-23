@@ -10,7 +10,9 @@ import Foundation
 // A codex executable that answers every turn and keeps what each was called
 // with. A turn that resumes no thread starts `thread-<n>`, and the usage it
 // reports grows by ten input tokens a call, as a thread's total does. A resume
-// of a thread it lost fails the way codex does, with nothing on stdout.
+// of a thread it lost fails the way codex does, with nothing on stdout. Where
+// `CODEX_HOME` is set, the thread's rollout there takes a `token_count` a call
+// whose last call held a hundred input tokens a call.
 struct FakeCodex {
     struct Call: Equatable {
         // MARK: - Property
@@ -53,6 +55,13 @@ struct FakeCodex {
               started=$(($(cat "$home/threads" 2>/dev/null || echo 0) + 1))
               echo "$started" > "$home/threads"
               thread="thread-$started"
+            fi
+            if [ -n "$CODEX_HOME" ]; then
+              mkdir -p "$CODEX_HOME/sessions/2026/11/23"
+              echo "{\"type\":\"event_msg\",\"payload\":{\"type\":\"token_count\",\"info\":{\"last_token_usage\":{\"input_tokens\":$((call * 100)),\"output_tokens\":$call}}}}" \
+                >> "$CODEX_HOME/sessions/2026/11/23/rollout-2026-11-23T15-11-24-$thread.jsonl"
+              echo "{\"type\":\"event_msg\",\"payload\":{\"type\":\"task_complete\"}}" \
+                >> "$CODEX_HOME/sessions/2026/11/23/rollout-2026-11-23T15-11-24-$thread.jsonl"
             fi
             echo "{\"type\":\"thread.started\",\"thread_id\":\"$thread\"}"
             echo "{\"type\":\"item.completed\",\"item\":{\"id\":\"a\",\"type\":\"agent_message\",\"text\":\"answer $call\"}}"

@@ -106,6 +106,71 @@ struct CodexBackendCompactionTests {
         #expect(lost?.message.contains("thread-1") == true)
     }
 
+    @Test("a turn reports the size the thread's rollout says its last call was")
+    func turnReportsSizeFromRollout() async throws {
+        // Given
+        let codex = try FakeCodex()
+        defer { codex.remove() }
+        let sut = CodexBackend(executable: codex.executable.path)
+        let session = sut.openSession()
+        let agent = try Agent(
+            model: "codex",
+            workingDirectory: codex.directory.path,
+            environment: ["CODEX_HOME": codex.directory.appendingPathComponent("home").path]
+        )
+
+        // When
+        _ = try await sut.invoke(
+            AgentInvocation(id: UUID().uuidString, agent: agent, prompt: "first", session: session)
+        )
+        let response = try await sut.invoke(
+            AgentInvocation(id: UUID().uuidString, agent: agent, prompt: "second", session: session)
+        )
+
+        // Then
+        #expect(response.contextTokens == 202)
+        #expect(try sut.record(of: session)["rollout_path"]?.stringValue?.hasSuffix("-thread-1.jsonl") == true)
+    }
+
+    @Test("a turn reads the file its session remembers without a search")
+    func turnReadsRememberedRollout() async throws {
+        // Given
+        let codex = try FakeCodex()
+        defer { codex.remove() }
+        let sut = CodexBackend(executable: codex.executable.path)
+        let remembered = codex.directory.appendingPathComponent("remembered.jsonl")
+        try #"{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"input_tokens":900,"output_tokens":7}}}}"#
+            .write(to: remembered, atomically: true, encoding: .utf8)
+        let session = CodexSession(threadIdentifier: "thread-1", turnIndex: 1, rolloutPath: remembered.path)
+
+        // When
+        let response = try await sut.invoke(invocation("next", in: session, at: codex.directory))
+
+        // Then
+        #expect(response.contextTokens == 907)
+    }
+
+    @Test("a turn whose thread has no rollout reports no size")
+    func turnWithoutRolloutReportsNoSize() async throws {
+        // Given
+        let codex = try FakeCodex()
+        defer { codex.remove() }
+        let sut = CodexBackend(executable: codex.executable.path)
+        let agent = try Agent(
+            model: "codex",
+            workingDirectory: codex.directory.path,
+            environment: ["HOME": codex.directory.path]
+        )
+
+        // When
+        let response = try await sut.invoke(
+            AgentInvocation(id: UUID().uuidString, agent: agent, prompt: "first", session: sut.openSession())
+        )
+
+        // Then
+        #expect(response.contextTokens == nil)
+    }
+
     // MARK: - Private
     private func invocation(
         _ prompt: String,
