@@ -1,5 +1,5 @@
 # A compaction the workflow asks for: the session `e2e/asked` is made with
-# compact off, takes one turn, and is compacted by a `compact` step.
+# compact none, takes one turn, and is compacted by a `compact` step.
 uses: [Forge]
 procedures:
   main:
@@ -12,7 +12,7 @@ procedures:
         arguments:
           model: claude
           session: e2e/asked
-          compact: false
+          compact: { case: none }
           body:
             closure:
               returns: Bool
