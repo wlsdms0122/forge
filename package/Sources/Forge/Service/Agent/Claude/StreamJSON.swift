@@ -76,7 +76,12 @@ enum StreamJSON {
                 }
             
             case "system":
-                if object["subtype"] as? String == "compact_boundary" { sawCompaction = true }
+                // What the requests before the cut read in is not the size of
+                // the conversation after it.
+                if object["subtype"] as? String == "compact_boundary" {
+                    sawCompaction = true
+                    contextTokens = nil
+                }
             
             case "assistant":
                 let message = object["message"] as? [String: Any] ?? [:]

@@ -246,14 +246,21 @@ struct AgentService: AgentServing {
             session: session.handle
         )
 
-        guard let name = session.name else { return try await executor.run(invocation) }
+        return try await logged(in: session) { try await executor.run(invocation) }
+    }
 
-        // The turn's log entries say which kept session they belong to.
+    // The log entries of what runs inside say which kept session they belong to.
+    private func logged<Value: Sendable>(
+        in session: AgentSession,
+        _ operation: @Sendable () async throws -> Value
+    ) async throws -> Value {
+        guard let name = session.name else { return try await operation() }
+
         var metadata = LogContext.metadata?.dict ?? [:]
         metadata["session"] = name.rawValue
 
         return try await LogContext.$metadata.withValue(LogPayload(metadata)) {
-            try await executor.run(invocation)
+            try await operation()
         }
     }
 
@@ -299,13 +306,22 @@ struct AgentService: AgentServing {
 
         let result = try await slots.withStepSlot { try await turn(prompt, in: session) }
 
-        session.contextTokens = result.contextTokens ?? session.contextTokens
         session.usedAt = Date()
 
-        // The backend compacted the conversation during the turn.
-        if result.isCompacted { session.needsSetup = true }
+        guard result.isCompacted else {
+            session.contextTokens = result.contextTokens ?? session.contextTokens
 
-        try await keep(session) { record in record.turns += 1 }
+            try await keep(session) { record in record.turns += 1 }
+
+            return result
+        }
+
+        await compacted(session, by: result, reason: .turn)
+
+        try await keep(session) { record in
+            record.turns += 1
+            record.compactions += 1
+        }
 
         return result
     }
@@ -345,27 +361,41 @@ struct AgentService: AgentServing {
     private func compactIfDue(_ session: AgentSession, slots: any StepSlotProviding) async throws {
         guard session.compacts, let reason = compactionReason(for: session) else { return }
 
-        let size = session.contextTokens
-        let started = ContinuousClock.now
-
-        try await slots.withStepSlot {
-            try await session.backend.compact(session.handle, agent: session.agent)
+        let result = try await slots.withStepSlot {
+            try await logged(in: session) {
+                try await executor.compact(session.handle, agent: session.agent)
+            }
         }
 
-        // What is left is known when the next turn measures it, and a summary
-        // stands where the context a setup built was.
-        session.contextTokens = nil
-        session.needsSetup = true
+        guard result.isCompacted else {
+            throw BackendProtocolViolation(
+                "the compaction left the conversation as it was"
+                    + (session.name.map { name in " (session \(name.rawValue))" } ?? "")
+            )
+        }
+
+        await compacted(session, by: result, reason: reason)
 
         try await keep(session) { record in record.compactions += 1 }
+    }
 
+    // A summary stands where the context a setup built was, and the
+    // conversation is as large as the turns after the cut measured it.
+    private func compacted(
+        _ session: AgentSession,
+        by result: AgentInvocationResult,
+        reason: CompactionReason
+    ) async {
         var payload: [String: Any] = [
             "reason": reason.rawValue,
-            "duration_ms": (ContinuousClock.now - started).milliseconds
+            "duration_ms": result.durationMs
         ]
 
-        if let size { payload["context_tokens"] = size }
+        if let size = session.contextTokens { payload["context_tokens"] = size }
         if let name = session.name { payload["session"] = name.rawValue }
+
+        session.contextTokens = result.contextTokens
+        session.needsSetup = true
 
         await Log.shared.append("session.compacted", LogPayload(payload), category: Self.category)
     }
