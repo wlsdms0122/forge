@@ -30,11 +30,10 @@ final class AgentSession: @unchecked Sendable {
     var contextTokens: Int?
     // When the session's last turn ended; nil before its first.
     var usedAt: Date?
-    // Whether the conversation holds no context a setup built: it is new, or
-    // was compacted since one ran.
-    var needsSetup: Bool
-    // Whether a setup is running, whose own turns go out without one.
-    var isSettingUp = false
+    // The events that happened and no invoke's hook has run for yet.
+    var due: Set<AgentSessionEvent>
+    // The event whose hook is running; its own turns go out without a hook.
+    var running: AgentSessionEvent?
 
     // The name of a kept session; nil for one that ends with its invoke.
     var name: SessionName? {
@@ -52,7 +51,7 @@ final class AgentSession: @unchecked Sendable {
         keeping: SessionKeeping,
         contextTokens: Int? = nil,
         usedAt: Date? = nil,
-        needsSetup: Bool = true
+        due: Set<AgentSessionEvent> = Set(AgentSessionEvent.allCases)
     ) {
         self.agent = agent
         self.backend = backend
@@ -61,7 +60,7 @@ final class AgentSession: @unchecked Sendable {
         self.keeping = keeping
         self.contextTokens = contextTokens
         self.usedAt = usedAt
-        self.needsSetup = needsSetup
+        self.due = due
     }
 
     // MARK: - Public

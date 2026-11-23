@@ -8,11 +8,11 @@
 import Foundation
 
 // A session as one invoke speaks through it: the session, and what that
-// invoke builds its context with.
+// invoke runs at the events of its life.
 struct AgentSessionBinding: Sendable {
     // MARK: - Property
     let session: AgentSession
-    let setup: (@Sendable () async throws -> Void)?
+    let lifecycle: AgentSessionLifecycle
 
     // MARK: - Initializer
     // MARK: - Public

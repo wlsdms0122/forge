@@ -22,7 +22,8 @@ struct SessionRecord: Sendable, Equatable, Codable {
         case contextTokens = "context_tokens"
         case compact
         case compactions
-        case needsSetup = "needs_setup"
+        case needsSessionStart = "needs_session_start"
+        case needsContextStart = "needs_context_start"
     }
     
     // MARK: - Property
@@ -40,8 +41,26 @@ struct SessionRecord: Sendable, Equatable, Codable {
     let compact: Bool
     // How many times the daemon has compacted the conversation.
     var compactions: Int
-    // Whether the conversation holds no context a setup built.
-    var needsSetup: Bool
+    // Whether the session started and no invoke's `on_session_start` has run since.
+    var needsSessionStart: Bool
+    // Whether the conversation holds no context an `on_context_start` built.
+    var needsContextStart: Bool
+    
+    // The events no invoke's hook has run for yet.
+    var due: Set<AgentSessionEvent> {
+        get {
+            var due: Set<AgentSessionEvent> = []
+            
+            if needsSessionStart { due.insert(.sessionStart) }
+            if needsContextStart { due.insert(.contextStart) }
+            
+            return due
+        }
+        set {
+            needsSessionStart = newValue.contains(.sessionStart)
+            needsContextStart = newValue.contains(.contextStart)
+        }
+    }
     
     // MARK: - Initializer
     init(
@@ -56,7 +75,8 @@ struct SessionRecord: Sendable, Equatable, Codable {
         contextTokens: Int? = nil,
         compact: Bool,
         compactions: Int = 0,
-        needsSetup: Bool = true
+        needsSessionStart: Bool = true,
+        needsContextStart: Bool = true
     ) {
         self.provider = provider
         self.handle = handle
@@ -69,7 +89,8 @@ struct SessionRecord: Sendable, Equatable, Codable {
         self.contextTokens = contextTokens
         self.compact = compact
         self.compactions = compactions
-        self.needsSetup = needsSetup
+        self.needsSessionStart = needsSessionStart
+        self.needsContextStart = needsContextStart
     }
     
     // MARK: - Public

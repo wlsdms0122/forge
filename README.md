@@ -76,7 +76,7 @@ touched.
 
 ### Verbs
 
-The verbs a workflow reaches the world with (`shell`, `invoke`, `agent`,
+The verbs a workflow reaches the world with (`shell`, `invoke`, `agent`, `compact`,
 `dispatch`, `resource`, `locate`, `extract`, `run`, `origin`) are the
 procedures of Forge's library, a document written in the same notation that
 the daemon carries. A workflow writes `uses: [Forge]` to use them. A verb is
@@ -134,9 +134,10 @@ a reviewer or a chat thread without talking over each other.
 
 A kept dialogue grows, so the daemon compacts it before a turn once it is
 past a size, or past a smaller one when the backend's cache of it has gone
-cold. An `invoke` may bring a `setup`, the turns that build the session's
-context; the daemon runs it when the dialogue is new or was compacted, and
-the workflow never asks which.
+cold. An `invoke` may bring `on_context_start`, the turns that build the
+session's context; the daemon runs it when the dialogue is new or was
+compacted, and the workflow never asks which. `on_session_start` runs once
+for each session the backend opens.
 
 ## Philosophy
 

@@ -107,16 +107,21 @@ struct EffectActionTests {
         // MARK: - Public
         func withSession(
             _ settings: AgentSessionSettings,
-            setup: (@Sendable () async throws -> Void)?,
+            lifecycle: AgentSessionLifecycle,
             body: @Sendable () async throws -> Warp.Value
         ) async throws -> Warp.Value {
             await recorder.recordSession(settings)
     
             return try await Self.$sessionOpen.withValue(true) {
-                try await setup?()
+                try await lifecycle.onSessionStart?()
+                try await lifecycle.onContextStart?()
     
                 return try await body()
             }
+        }
+    
+        func compact(slots: any StepSlotProviding) async throws -> Bool {
+            false
         }
     
         func send(prompt: String, slots: any StepSlotProviding) async throws -> String {

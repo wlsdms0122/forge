@@ -17,4 +17,6 @@ enum CompactionReason: String, Sendable {
     // A turn of the session compacted it: the backend on its own, or the
     // prompt the turn carried.
     case turn
+    // The workflow asked for it.
+    case requested
 }

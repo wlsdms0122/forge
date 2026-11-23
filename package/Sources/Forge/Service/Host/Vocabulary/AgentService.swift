@@ -34,7 +34,7 @@ struct AgentService: AgentServing {
     // MARK: - Public
     func withSession(
         _ settings: AgentSessionSettings,
-        setup: (@Sendable () async throws -> Void)?,
+        lifecycle: AgentSessionLifecycle,
         body: @Sendable () async throws -> Warp.Value
     ) async throws -> Warp.Value {
         // share_session is a conditional join: settings ride along as the
@@ -42,13 +42,13 @@ struct AgentService: AgentServing {
         // ignored and the body joins it, without one they open a new session.
         // Callers cannot know at authoring time which side they will land on.
         if settings.shareSession, let current = AgentSession.current {
-            return try await bind(current.session, setup: setup ?? current.setup, body: body)
+            return try await bind(current.session, lifecycle: lifecycle.joining(current.lifecycle), body: body)
         }
 
         // An invoke around this one already holds the name, so waiting for it
         // would wait for this task itself.
         if let name = settings.session, let held = AgentSession.held[name] {
-            return try await bind(held.session, setup: setup ?? held.setup, body: body)
+            return try await bind(held.session, lifecycle: lifecycle.joining(held.lifecycle), body: body)
         }
 
         if let name = settings.session, AgentSession.heldAroundFanOut.contains(name) {
@@ -60,14 +60,14 @@ struct AgentService: AgentServing {
 
         // A session without a name ends with this invoke, and no other invoke can ask for it.
         guard let name = settings.session else {
-            return try await bind(try open(settings), setup: setup, body: body)
+            return try await bind(try open(settings), lifecycle: lifecycle, body: body)
         }
 
         try await sessions.acquire(name)
 
         do {
             let session = try await enter(name: name, settings: settings)
-            let value = try await bind(session, setup: setup, body: body)
+            let value = try await bind(session, lifecycle: lifecycle, body: body)
 
             await sessions.release(name)
 
@@ -107,6 +107,36 @@ struct AgentService: AgentServing {
             }
 
             return result.text
+        }
+    }
+
+    func compact(slots: any StepSlotProviding) async throws -> Bool {
+        guard let session = AgentSession.current?.session else {
+            throw AgentSessionMissing(
+                "compact step has no active agent session — run it inside an `invoke`'s"
+                    + " steps (directly, or via dispatch from within one)"
+            )
+        }
+
+        // A conversation no turn has gone into holds nothing to compact.
+        guard session.usedAt != nil else { return false }
+
+        return try await LogContext.childNode {
+            do {
+                try await compact(session, for: .requested, slots: slots)
+            } catch let lost as BackendSessionLost {
+                // As a turn does: only a kept session's first step can find
+                // the conversation gone, and the new one holds nothing yet.
+                guard case let .record(record, name, isConfirmed: false) = session.keeping else {
+                    throw lost.exit
+                }
+
+                try await renew(session, named: name, from: record)
+
+                return false
+            }
+
+            return true
         }
     }
 
@@ -156,15 +186,13 @@ struct AgentService: AgentServing {
         )
     }
 
-    // The body speaks through the session with this setup. An invoke that
-    // joins a session an invoke around it holds comes here with that one's
-    // setup where it brings none.
+    // The body speaks through the session with this lifecycle.
     private func bind(
         _ session: AgentSession,
-        setup: (@Sendable () async throws -> Void)?,
+        lifecycle: AgentSessionLifecycle,
         body: @Sendable () async throws -> Warp.Value
     ) async throws -> Warp.Value {
-        let binding = AgentSessionBinding(session: session, setup: setup)
+        let binding = AgentSessionBinding(session: session, lifecycle: lifecycle)
         var held = AgentSession.held
 
         if let name = session.name { held[name] = binding }
@@ -234,7 +262,7 @@ struct AgentService: AgentServing {
             keeping: .record(record, name: name, isConfirmed: false),
             contextTokens: record.contextTokens,
             usedAt: ISO8601.parse(record.usedAt),
-            needsSetup: record.needsSetup
+            due: record.due
         )
     }
 
@@ -273,8 +301,9 @@ struct AgentService: AgentServing {
         session.handle = session.backend.openSession()
         session.contextTokens = nil
         session.usedAt = nil
-        // A setup this happens during builds its context in the new conversation.
-        session.needsSetup = !session.isSettingUp
+        // Both events happened again. A hook this happens during runs its
+        // turns in the new conversation, so its event is not due once more.
+        session.due = Set(AgentSessionEvent.allCases).subtracting([session.running].compactMap { event in event })
         session.keeping = .record(
             record.restarted(
                 handle: try session.backend.record(of: session.handle),
@@ -293,7 +322,7 @@ struct AgentService: AgentServing {
 
     // One turn of the session, after whatever the conversation needs first.
     // The compaction and the turn are each an agent process and hold a step
-    // slot; the setup between them holds none, since its own turns take theirs.
+    // slot; the hooks between them hold none, since their own turns take theirs.
     private func deliver(
         _ prompt: String,
         through binding: AgentSessionBinding,
@@ -302,7 +331,7 @@ struct AgentService: AgentServing {
         let session = binding.session
 
         try await compactIfDue(session, slots: slots)
-        try await setUpIfDue(session, with: binding.setup)
+        try await startIfDue(session, with: binding.lifecycle)
 
         let result = try await slots.withStepSlot { try await turn(prompt, in: session) }
 
@@ -326,33 +355,38 @@ struct AgentService: AgentServing {
         return result
     }
 
-    // The setup's own turns pass through here while it runs. An invoke that
-    // brings no setup leaves the session in need of one.
-    private func setUpIfDue(
-        _ session: AgentSession,
-        with setup: (@Sendable () async throws -> Void)?
-    ) async throws {
-        guard session.needsSetup, !session.isSettingUp, let setup else { return }
+    // Runs the hook of each event that is due. A hook's own turns pass through
+    // here while it runs, and an invoke that brings no hook for an event
+    // leaves it due.
+    private func startIfDue(_ session: AgentSession, with lifecycle: AgentSessionLifecycle) async throws {
+        guard session.running == nil else { return }
 
-        // Lowered before the setup runs, so a compaction during it leaves the
-        // session in need of another.
-        session.needsSetup = false
-        session.isSettingUp = true
+        var ran = false
 
-        do {
-            try await setup()
-        } catch {
-            session.isSettingUp = false
-            session.needsSetup = true
+        for event in AgentSessionEvent.allCases {
+            guard session.due.contains(event), let hook = lifecycle.hook(for: event) else { continue }
 
-            throw error
+            // Taken off before the hook runs, so the event happening again
+            // during it leaves it due once more.
+            session.due.remove(event)
+            session.running = event
+
+            do {
+                try await hook()
+            } catch {
+                session.running = nil
+                session.due.insert(event)
+
+                throw error
+            }
+
+            session.running = nil
+            ran = true
         }
 
-        session.isSettingUp = false
-
-        // A setup whose turns finished is on record before the turn it ran
-        // for; one that sent none has no conversation to keep yet.
-        guard case let .record(record, _, _) = session.keeping, record.turns > 0 else { return }
+        // Hooks whose turns finished are on record before the turn they ran
+        // for; ones that sent none have no conversation to keep yet.
+        guard ran, case let .record(record, _, _) = session.keeping, record.turns > 0 else { return }
 
         try await keep(session) { _ in }
     }
@@ -361,6 +395,14 @@ struct AgentService: AgentServing {
     private func compactIfDue(_ session: AgentSession, slots: any StepSlotProviding) async throws {
         guard session.compacts, let reason = compactionReason(for: session) else { return }
 
+        try await compact(session, for: reason, slots: slots)
+    }
+
+    private func compact(
+        _ session: AgentSession,
+        for reason: CompactionReason,
+        slots: any StepSlotProviding
+    ) async throws {
         let result = try await slots.withStepSlot {
             try await logged(in: session) {
                 try await executor.compact(session.handle, agent: session.agent)
@@ -379,7 +421,7 @@ struct AgentService: AgentServing {
         try await keep(session) { record in record.compactions += 1 }
     }
 
-    // A summary stands where the context a setup built was, and the
+    // A summary stands where the context a hook built was, and the
     // conversation is as large as the turns after the cut measured it.
     private func compacted(
         _ session: AgentSession,
@@ -395,7 +437,7 @@ struct AgentService: AgentServing {
         if let name = session.name { payload["session"] = name.rawValue }
 
         session.contextTokens = result.contextTokens
-        session.needsSetup = true
+        session.due.insert(.contextStart)
 
         await Log.shared.append("session.compacted", LogPayload(payload), category: Self.category)
     }
@@ -425,8 +467,8 @@ struct AgentService: AgentServing {
         record.handle = try session.backend.record(of: session.handle)
         record.usedAt = session.usedAt.map(ISO8601.string) ?? record.usedAt
         record.contextTokens = session.contextTokens
-        // A setup still running has not built the context yet.
-        record.needsSetup = session.needsSetup || session.isSettingUp
+        // A hook still running has not finished what its event calls for.
+        record.due = session.due.union([session.running].compactMap { event in event })
         change(&record)
         session.keeping = .record(record, name: name, isConfirmed: true)
 

@@ -65,6 +65,10 @@ struct ForgeVocabulary: Sendable {
                 "Forge.Native.shell": Procedure(signature: ShellAction.signature, implementation: ShellAction()),
                 "Forge.Native.extract": Procedure(signature: ExtractQuery.signature, implementation: ExtractQuery()),
                 "Forge.Native.agent": Procedure(signature: AgentAction.signature, implementation: AgentAction()),
+                "Forge.Native.compact": Procedure(
+                    signature: CompactAction.signature,
+                    implementation: CompactAction()
+                ),
                 "Forge.Native.invoke": Procedure(signature: InvokeAction.signature, implementation: InvokeAction()),
                 "Forge.Native.dispatch": Procedure(
                     signature: DispatchAction.signature,
