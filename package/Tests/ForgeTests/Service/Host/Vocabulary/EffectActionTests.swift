@@ -120,6 +120,10 @@ struct EffectActionTests {
             }
         }
     
+        func compact(slots: any StepSlotProviding) async throws -> Bool {
+            false
+        }
+    
         func send(prompt: String, slots: any StepSlotProviding) async throws -> String {
             guard Self.sessionOpen else {
                 throw RunRefused("agent step has no active session — run it inside invoke")

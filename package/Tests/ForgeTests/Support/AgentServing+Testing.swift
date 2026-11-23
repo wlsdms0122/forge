@@ -22,4 +22,9 @@ extension AgentServing {
     func send(prompt: String) async throws -> String {
         try await send(prompt: prompt, slots: FreeStepSlot())
     }
+
+    // A compaction outside any pool of step slots.
+    func compact() async throws -> Bool {
+        try await compact(slots: FreeStepSlot())
+    }
 }

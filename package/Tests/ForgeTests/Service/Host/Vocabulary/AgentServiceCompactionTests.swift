@@ -208,6 +208,77 @@ struct AgentServiceCompactionTests {
         #expect(record.turns == 2)
     }
     
+    @Test("a compact step compacts a session made with compact off")
+    func compactStepCompactsASessionMadeWithCompactOff() async throws {
+        // Given
+        let directory = try temporary.make("asked")
+        let backend = TranscriptBackend()
+        let sut = Self.agent(backend, directory)
+        let name = try SessionName("kept")
+        
+        // When
+        let reply = try await sut.withSession(AgentSessionSettings(session: name, compact: false)) {
+            _ = try await sut.send(prompt: "one")
+            
+            let isCompacted = try await sut.compact()
+            
+            return .array([.bool(isCompacted), .string(try await sut.send(prompt: "two"))])
+        }
+        
+        // Then
+        let record = try #require(try await SessionStore(directory: directory).record(name))
+        
+        #expect(reply == .array([.bool(true), .string("…,two")]))
+        #expect(record.compactions == 1)
+        #expect(record.turns == 2)
+    }
+    
+    @Test("a compact step before the session's first turn compacts nothing")
+    func compactStepBeforeTheFirstTurnCompactsNothing() async throws {
+        // Given
+        let backend = TranscriptBackend()
+        let sut = Self.agent(backend, try temporary.make("untouched"))
+        
+        // When
+        let reply = try await sut.withSession(AgentSessionSettings()) { .bool(try await sut.compact()) }
+        
+        // Then
+        #expect(reply == .bool(false))
+        #expect(backend.compactions.elements.isEmpty)
+    }
+    
+    @Test("a compact step outside a session is refused")
+    func compactStepOutsideASessionIsRefused() async throws {
+        // Given
+        let sut = Self.agent(TranscriptBackend(), try temporary.make("outside"))
+        
+        // When / Then
+        await #expect(throws: AgentSessionMissing.self) { _ = try await sut.compact() }
+    }
+    
+    @Test("a compact step that finds a kept session's conversation gone starts a new one")
+    func compactStepThatFindsTheConversationGoneStartsANewOne() async throws {
+        // Given
+        let directory = try temporary.make("asked-lost")
+        let backend = TranscriptBackend()
+        let sut = Self.agent(backend, directory)
+        let name = try SessionName("kept")
+        let settings = AgentSessionSettings(session: name)
+        
+        _ = try await sut.withSession(settings) { .string(try await sut.send(prompt: "one")) }
+        backend.forgetAll()
+        
+        // When
+        let reply = try await sut.withSession(settings) {
+            let isCompacted = try await sut.compact()
+            
+            return .array([.bool(isCompacted), .string(try await sut.send(prompt: "two"))])
+        }
+        
+        // Then
+        #expect(reply == .array([.bool(false), .string("two")]))
+    }
+    
     // MARK: - Private
     private static func agent(
         _ backend: any Backend,
