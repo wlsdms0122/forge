@@ -53,37 +53,31 @@ struct CodexBackendCompactionTests {
         #expect(restored?.turnIndex == 0)
     }
 
-    @Test("a compaction drops the thread and the next turn opens a new one with the summary")
-    func compactionCarriesSummaryIntoNewThread() async throws {
+    @Test("a turn that asks for the conversation's summary reasons low, and no other turn does")
+    func summaryRequestReasonsLow() async throws {
         // Given
         let codex = try FakeCodex()
         defer { codex.remove() }
         let sut = CodexBackend(executable: codex.executable.path)
         let session = sut.openSession()
-        let compaction = SummaryCompaction()
         _ = try await sut.invoke(invocation("first", in: session, at: codex.directory))
 
         // When
-        let response = try await sut.compact(session) { prompt in
-            try await sut.invoke(invocation(prompt, in: session, at: codex.directory))
-        }
-        let kept = try sut.session(from: try sut.record(of: session))
-        _ = try await sut.invoke(invocation("later", in: kept, at: codex.directory))
-        _ = try await sut.invoke(invocation("last", in: kept, at: codex.directory))
+        _ = try await sut.invoke(
+            AgentInvocation(
+                id: UUID().uuidString,
+                agent: try Agent(model: "codex", workingDirectory: codex.directory.path),
+                prompt: "summarize",
+                session: session,
+                isSummaryRequest: true
+            )
+        )
         let calls = try codex.calls()
 
         // Then
-        #expect(response.isCompacted)
-        #expect(response.contextTokens == nil)
-        #expect(calls.count == 4)
-        #expect(calls[1].arguments.contains("thread-1"))
-        #expect(calls[1].prompt == compaction.request)
+        #expect(!calls[0].arguments.contains("model_reasoning_effort=\"low\""))
         #expect(calls[1].arguments.contains("model_reasoning_effort=\"low\""))
-        #expect(!calls[2].arguments.contains("model_reasoning_effort=\"low\""))
-        #expect(!calls[2].arguments.contains("resume"))
-        #expect(calls[2].prompt == compaction.opening("later", after: "answer 2"))
-        #expect(calls[3].arguments.contains("thread-2"))
-        #expect(calls[3].prompt == "last")
+        #expect(calls[1].arguments.contains("thread-1"))
     }
 
     @Test("a resume of a thread codex has no record of fails as a lost session")

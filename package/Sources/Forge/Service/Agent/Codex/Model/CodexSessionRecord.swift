@@ -13,7 +13,6 @@ struct CodexSessionRecord: Sendable, Equatable, Codable {
         case threadIdentifier = "thread_id"
         case turnIndex = "turn_index"
         case usage
-        case summary
         case rolloutPath = "rollout_path"
     }
 
@@ -23,7 +22,6 @@ struct CodexSessionRecord: Sendable, Equatable, Codable {
     let turnIndex: Int
     // What the thread's turns have used in all, which codex reports each turn.
     let usage: AgentUsage?
-    let summary: String?
     let rolloutPath: String?
 
     // MARK: - Initializer

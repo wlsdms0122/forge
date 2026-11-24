@@ -59,6 +59,9 @@ struct ServeCommand: AsyncParsableCommand {
                         backend's cache of the conversation has expired.
                         retention_days (default 7): how long a session no invoke
                         uses is kept.
+                        compaction_prompt: a file holding the prompt Forge's own
+                        compaction asks a conversation for its summary with, in
+                        place of the one the binary ships.
                 [provider.<name>]   configured backends; `kind` = \(BackendKind.allCases.map(\.rawValue).joined(separator: "|")).
                         CLI kinds take `executable` (default: the CLI on PATH);
                         openai-compat requires `endpoint`. A provider without a known

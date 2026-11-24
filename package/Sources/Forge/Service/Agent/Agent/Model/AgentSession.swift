@@ -23,6 +23,8 @@ final class AgentSession: @unchecked Sendable {
     let backend: any Backend
     // When the daemon compacts the session an invoke takes up.
     let compaction: CompactionPolicy
+    // Whose compaction shrinks the conversation.
+    let compactionMode: CompactionMode
 
     var handle: any BackendSession
     var keeping: SessionKeeping
@@ -34,6 +36,9 @@ final class AgentSession: @unchecked Sendable {
     var due: Set<AgentSessionEvent>
     // The event whose hook is running; its own turns go out without a hook.
     var running: AgentSessionEvent?
+    // What Forge's compaction left of the conversation it replaced; the first
+    // turn of the one in its place opens with it.
+    var summary: String?
 
     // The name of a kept session; nil for one that ends with its invoke.
     var name: SessionName? {
@@ -42,25 +47,34 @@ final class AgentSession: @unchecked Sendable {
         return name
     }
 
+    // The backend's own compaction, where the session takes it.
+    var compactingBackend: (any CompactingBackend)? {
+        compactionMode == .builtin ? nil : backend as? any CompactingBackend
+    }
+
     // MARK: - Initializer
     init(
         agent: Agent,
         backend: any Backend,
         compaction: CompactionPolicy,
+        compactionMode: CompactionMode,
         handle: any BackendSession,
         keeping: SessionKeeping,
         contextTokens: Int? = nil,
         usedAt: Date? = nil,
-        due: Set<AgentSessionEvent> = Set(AgentSessionEvent.allCases)
+        due: Set<AgentSessionEvent> = Set(AgentSessionEvent.allCases),
+        summary: String? = nil
     ) {
         self.agent = agent
         self.backend = backend
         self.compaction = compaction
+        self.compactionMode = compactionMode
         self.handle = handle
         self.keeping = keeping
         self.contextTokens = contextTokens
         self.usedAt = usedAt
         self.due = due
+        self.summary = summary
     }
 
     // MARK: - Public

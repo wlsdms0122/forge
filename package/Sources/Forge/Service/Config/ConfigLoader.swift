@@ -79,6 +79,7 @@ enum ConfigLoader {
         var contextLimit: Int?
         var coldCompactFloor: Int?
         var retentionDays: Int?
+        var compactionPrompt: String?
         
         // MARK: - Initializer
         // MARK: - Public
@@ -321,6 +322,17 @@ enum ConfigLoader {
             )
         )
         
+        entries.append(
+            .init(
+                key: "session.compaction_prompt",
+                value: config.session.compactionPrompt?.path ?? "(shipped)",
+                source: source(
+                    toml: fromFile.session.compactionPrompt,
+                    environmentName: "FORGE_SESSION_COMPACTION_PROMPT"
+                )
+            )
+        )
+        
         return (config, ConfigReport(tomlPath: tomlURL?.path, entries: entries))
     }
     
@@ -367,11 +379,12 @@ enum ConfigLoader {
         }
         
         if let session = try file.table("session") {
-            try session.admit(["context_limit", "cold_compact_floor", "retention_days"])
+            try session.admit(["context_limit", "cold_compact_floor", "retention_days", "compaction_prompt"])
             
             partial.session.contextLimit = try session.int("context_limit")
             partial.session.coldCompactFloor = try session.int("cold_compact_floor")
             partial.session.retentionDays = try session.int("retention_days")
+            partial.session.compactionPrompt = try session.string("compaction_prompt")
         }
         
         if let providers = try file.table("provider") {
@@ -477,7 +490,13 @@ enum ConfigLoader {
                 environment: environment,
                 valid: { value in value > 0 },
                 builtin: defaultSession.retentionDays
-            ).value
+            ).value,
+            compactionPrompt: resolveURL(
+                environmentName: "FORGE_SESSION_COMPACTION_PROMPT",
+                environment: environment,
+                toml: file.session.compactionPrompt,
+                anchor: anchor
+            )
         )
         
         let services: [ServiceConfig] = (file.services ?? []).compactMap { service in
@@ -652,6 +671,25 @@ enum ConfigLoader {
         
         default:
             return fallback
+        }
+    }
+    
+    // The file a setting names, where the toml or the environment names one.
+    private static func resolveURL(
+        environmentName: String,
+        environment: [String: String],
+        toml: String?,
+        anchor: URL
+    ) -> URL? {
+        switch channelSource(toml: toml, environment: environment, environmentName: environmentName) {
+        case .toml:
+            return resolveURL(toml!, anchor: anchor)
+        
+        case .environment:
+            return resolveURL(environment[environmentName]!, anchor: anchor)
+        
+        default:
+            return nil
         }
     }
     
