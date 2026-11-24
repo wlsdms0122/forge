@@ -31,6 +31,32 @@ struct ClaudeSessionRecordTests {
         #expect(restored.established)
     }
     
+    @Test("the record of a session no turn has gone into names a conversation claude has yet to start")
+    func recordBeforeFirstTurnIsNotEstablished() throws {
+        // Given
+        let sut = ClaudeBackend()
+        
+        // When
+        let restored = try #require(try sut.session(from: sut.record(of: sut.openSession())) as? ClaudeSession)
+        
+        // Then
+        #expect(!restored.established)
+    }
+    
+    @Test("a record that does not say whether claude has the conversation names one it has")
+    func recordWithoutEstablishedIsEstablished() throws {
+        // Given
+        let sut = ClaudeBackend()
+        
+        // When
+        let restored = try #require(
+            try sut.session(from: ["session_id": "S-1", "turn_index": 2]) as? ClaudeSession
+        )
+        
+        // Then
+        #expect(restored.established)
+    }
+    
     @Test("a record that names no claude session is refused")
     func foreignRecordIsRefused() {
         // Given

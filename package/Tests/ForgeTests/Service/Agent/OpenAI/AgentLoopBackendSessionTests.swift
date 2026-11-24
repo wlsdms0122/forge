@@ -78,56 +78,6 @@ struct AgentLoopBackendSessionTests {
         }
     }
 
-    @Test("a compaction leaves the summary where the conversation was")
-    func compactionReplacesConversationWithSummary() async throws {
-        // Given
-        let transport = StubChatTransport([
-            ChatCompletion(text: "first answer"),
-            ChatCompletion(
-                text: "the summary",
-                usage: AgentUsage(inputTokens: 900, outputTokens: 30)
-            ),
-            ChatCompletion(text: "later answer")
-        ])
-        let sut = AgentLoopBackend(transport: transport)
-        let session = sut.openSession()
-        let request = SummaryCompaction().request
-        _ = try await sut.invoke(invocation("first", in: session))
-
-        // When
-        let response = try await sut.compact(session) { prompt in
-            try await sut.invoke(invocation(prompt, in: session))
-        }
-        _ = try await sut.invoke(invocation("later", in: session))
-        let sent = await transport.lastMessages
-
-        // Then
-        #expect(response.isCompacted)
-        #expect(response.contextTokens == nil)
-        #expect(response.usage == AgentUsage(inputTokens: 900, outputTokens: 30))
-        #expect(
-            sent == [
-                ChatMessage(role: .user, content: request),
-                ChatMessage(role: .assistant, content: "the summary"),
-                ChatMessage(role: .user, content: "later")
-            ]
-        )
-    }
-
-    @Test("a compaction whose summary is empty fails")
-    func emptySummaryFailsCompaction() async throws {
-        // Given
-        let sut = AgentLoopBackend(transport: StubChatTransport([ChatCompletion(text: "  \n")]))
-        let session = sut.openSession()
-
-        // Then
-        await #expect(throws: BackendProtocolViolation.self) {
-            _ = try await sut.compact(session) { prompt in
-                try await sut.invoke(invocation(prompt, in: session))
-            }
-        }
-    }
-
     // MARK: - Private
     private func invocation(_ prompt: String, in session: any BackendSession) -> AgentInvocation {
         AgentInvocation(

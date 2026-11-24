@@ -11,9 +11,9 @@ import Foundation
 // A backend that keeps each conversation's prompts under the session's id, the
 // way a backend with resumable sessions does. A turn replies with the prompts
 // the conversation has seen so far, joined by a comma, and reports a
-// conversation of a thousand tokens a prompt. Compacting a conversation leaves
-// one entry, "…", in place of its prompts.
-final class TranscriptBackend: Backend, @unchecked Sendable {
+// conversation of a thousand tokens a prompt. Its own compaction leaves one
+// entry, "…", in place of a conversation's prompts.
+final class TranscriptBackend: CompactingBackend, @unchecked Sendable {
     final class Session: BackendSession, Sendable {
         // MARK: - Property
         let id: String
@@ -111,7 +111,7 @@ final class TranscriptBackend: Backend, @unchecked Sendable {
         turn: @Sendable (String) async throws -> BackendResponse
     ) async throws -> BackendResponse {
         guard let session = session as? Session else {
-            throw BackendCompactionUnavailable("the session is not a transcript session")
+            throw BackendProtocolViolation("a compaction came without a transcript session")
         }
         
         try lock.withLock {
