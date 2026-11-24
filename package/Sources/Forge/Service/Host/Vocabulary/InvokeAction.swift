@@ -24,6 +24,7 @@ struct InvokeAction: ForgeAction {
         case onSessionStart
         case onContextStart
         case compact
+        case compactMode
         case timeout
         case body
 
@@ -66,6 +67,9 @@ struct InvokeAction: ForgeAction {
             case .compact:
                 Parameter(name: "compact", type: .named(ForgeVocabulary.compactionType))
 
+            case .compactMode:
+                Parameter(name: "compact_mode", type: .named(ForgeVocabulary.compactionModeType))
+
             case .timeout:
                 Parameter(name: "timeout", type: .optional(.double))
 
@@ -105,7 +109,8 @@ struct InvokeAction: ForgeAction {
             envExtra: try ValueBridge.strings(invocation[.envExtra]),
             shareSession: invocation[.shareSession] == .bool(true),
             session: try Self.nonEmpty(invocation.string(.session), field: "session").map(SessionName.init),
-            compact: try Self.compaction(invocation[.compact])
+            compact: try Self.compaction(invocation[.compact]),
+            compactMode: try Self.compactionMode(invocation[.compactMode])
         )
 
         // Both say which session the body speaks through, so they cannot both stand.
@@ -152,6 +157,19 @@ struct InvokeAction: ForgeAction {
         }
 
         return .limit(tokens)
+    }
+
+    private static func compactionMode(_ value: Warp.Value) throws -> CompactionMode {
+        // A value of an enum carries its case's spelling, whose last part is the case.
+        guard
+            case let .struct(written) = value,
+            let name = written.name.description.split(separator: ".").last,
+            let mode = CompactionMode(rawValue: String(name))
+        else {
+            throw RunRefused("invoke: compact_mode is no case of \(ForgeVocabulary.compactionModeType)")
+        }
+
+        return mode
     }
 
     // null means "unset" and stays nil, and the signature holds the rest to a list.

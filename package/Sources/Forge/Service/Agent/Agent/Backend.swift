@@ -19,13 +19,6 @@ protocol Backend: Sendable {
 
     // How long the backend's prompt cache outlives a turn; nil where it has none.
     var cacheLifetime: Duration? { get }
-    // Shrinks the session's conversation in place and answers with the turn
-    // that did. Each prompt the compaction sends goes through `turn`, as a
-    // turn of the session does.
-    func compact(
-        _ session: any BackendSession,
-        turn: @Sendable (String) async throws -> BackendResponse
-    ) async throws -> BackendResponse
 }
 
 extension Backend {
@@ -40,11 +33,4 @@ extension Backend {
     }
 
     var cacheLifetime: Duration? { nil }
-
-    func compact(
-        _ session: any BackendSession,
-        turn: @Sendable (String) async throws -> BackendResponse
-    ) async throws -> BackendResponse {
-        throw BackendCompactionUnavailable("this backend cannot compact a session")
-    }
 }

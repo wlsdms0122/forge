@@ -81,7 +81,6 @@ struct CodexBackend: Backend {
                 threadIdentifier: session.threadIdentifier,
                 turnIndex: session.turnIndex,
                 usage: session.cumulativeUsage,
-                summary: session.summary,
                 rolloutPath: session.rolloutPath
             )
         )
@@ -96,31 +95,8 @@ struct CodexBackend: Backend {
             threadIdentifier: record.threadIdentifier,
             turnIndex: record.turnIndex,
             cumulativeUsage: record.usage,
-            summary: record.summary,
             rolloutPath: record.rolloutPath
         )
-    }
-    
-    // Codex keeps the conversation in the thread, so the summary goes into a
-    // thread of its own: the next turn starts one.
-    func compact(
-        _ session: any BackendSession,
-        turn: @Sendable (String) async throws -> BackendResponse
-    ) async throws -> BackendResponse {
-        guard let session = session as? CodexSession else {
-            throw BackendCompactionUnavailable("the session is not one codex opened")
-        }
-        
-        session.isSummarizing = true
-        
-        defer { session.isSummarizing = false }
-        
-        return try await SummaryCompaction().compact(turn: turn) { summary in
-            session.threadIdentifier = nil
-            session.cumulativeUsage = nil
-            session.rolloutPath = nil
-            session.summary = summary
-        }
     }
     
     func invoke(_ invocation: AgentInvocation) async throws -> BackendResponse {
@@ -135,10 +111,9 @@ struct CodexBackend: Backend {
         
         let session = invocation.session as? CodexSession
         let baseIndex = session?.turnIndex ?? 0
-        // A summary is a reading of what is already there, and the turn that
-        // writes one is the wait a compaction costs.
+        // The turn that writes a summary is the wait a compaction costs.
         let agentArguments = translator.agentArguments(configuration: native)
-            + (session?.isSummarizing == true ? ["-c", "model_reasoning_effort=\"low\""] : [])
+            + (invocation.isSummaryRequest ? ["-c", "model_reasoning_effort=\"low\""] : [])
         let resumed = session?.threadIdentifier
         let arguments = Self.arguments(agentArguments: agentArguments, resume: resumed)
         let modelLabel = invocation.agent.model?.displayName
@@ -156,9 +131,7 @@ struct CodexBackend: Backend {
                 args: arguments,
                 cwd: native.workingDirectory,
                 envExtra: native.environment,
-                stdin: session?.summary.map { summary in
-                    SummaryCompaction().opening(invocation.prompt, after: summary)
-                } ?? invocation.prompt,
+                stdin: invocation.prompt,
                 onStdoutLine: { frame, at in reader.feed(frame: frame, at: at) }
             )
         } catch {
@@ -175,12 +148,10 @@ struct CodexBackend: Backend {
         
         let streamed = reader.snapshot()
         
-        // A thread that started took the prompt, and the summary with it.
         if let threadIdentifier = streamed.threadIdentifier {
             if session?.threadIdentifier != threadIdentifier { session?.rolloutPath = nil }
             
             session?.threadIdentifier = threadIdentifier
-            session?.summary = nil
         }
         
         let parsed = streamed

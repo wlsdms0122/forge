@@ -13,18 +13,23 @@ struct AgentInvocation: Sendable, Equatable {
     let agent: Agent
     let prompt: String
     let session: (any BackendSession)?
+    // Whether the prompt asks the conversation for its summary, which is a
+    // reading of what is already there.
+    let isSummaryRequest: Bool
 
     // MARK: - Initializer
     init(
         id: String,
         agent: Agent,
         prompt: String,
-        session: (any BackendSession)? = nil
+        session: (any BackendSession)? = nil,
+        isSummaryRequest: Bool = false
     ) {
         self.id = id
         self.agent = agent
         self.prompt = prompt
         self.session = session
+        self.isSummaryRequest = isSummaryRequest
     }
 
     // MARK: - Public

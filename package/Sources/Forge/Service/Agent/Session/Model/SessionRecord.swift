@@ -21,9 +21,11 @@ struct SessionRecord: Sendable, Equatable, Codable {
         case turns
         case contextTokens = "context_tokens"
         case compact
+        case compactMode = "compact_mode"
         case compactions
         case needsSessionStart = "needs_session_start"
         case needsContextStart = "needs_context_start"
+        case summary
     }
     
     // MARK: - Property
@@ -39,12 +41,17 @@ struct SessionRecord: Sendable, Equatable, Codable {
     var contextTokens: Int?
     // When the daemon compacts the session an invoke takes up.
     let compact: CompactionPolicy
+    // Whose compaction shrinks the conversation.
+    let compactMode: CompactionMode
     // How many times the daemon has compacted the conversation.
     var compactions: Int
     // Whether the session started and no invoke's `on_session_start` has run since.
     var needsSessionStart: Bool
     // Whether the conversation holds no context an `on_context_start` built.
     var needsContextStart: Bool
+    // What Forge's compaction left of the conversation it replaced, until a
+    // turn of the one in its place has opened with it.
+    var summary: String?
     
     // The events no invoke's hook has run for yet.
     var due: Set<AgentSessionEvent> {
@@ -74,9 +81,11 @@ struct SessionRecord: Sendable, Equatable, Codable {
         turns: Int,
         contextTokens: Int? = nil,
         compact: CompactionPolicy,
+        compactMode: CompactionMode,
         compactions: Int = 0,
         needsSessionStart: Bool = true,
-        needsContextStart: Bool = true
+        needsContextStart: Bool = true,
+        summary: String? = nil
     ) {
         self.provider = provider
         self.handle = handle
@@ -88,9 +97,32 @@ struct SessionRecord: Sendable, Equatable, Codable {
         self.turns = turns
         self.contextTokens = contextTokens
         self.compact = compact
+        self.compactMode = compactMode
         self.compactions = compactions
         self.needsSessionStart = needsSessionStart
         self.needsContextStart = needsContextStart
+        self.summary = summary
+    }
+    
+    init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        
+        provider = try container.decode(String.self, forKey: .provider)
+        handle = try container.decode(JSONValue.self, forKey: .handle)
+        model = try container.decodeIfPresent(String.self, forKey: .model)
+        allowed = try container.decodeIfPresent([JSONValue].self, forKey: .allowed)
+        permissionMode = try container.decodeIfPresent(String.self, forKey: .permissionMode)
+        createdAt = try container.decode(String.self, forKey: .createdAt)
+        usedAt = try container.decode(String.self, forKey: .usedAt)
+        turns = try container.decode(Int.self, forKey: .turns)
+        contextTokens = try container.decodeIfPresent(Int.self, forKey: .contextTokens)
+        compact = try container.decode(CompactionPolicy.self, forKey: .compact)
+        // A record that names no mode is of a session that chose none.
+        compactMode = try container.decodeIfPresent(CompactionMode.self, forKey: .compactMode) ?? .automatic
+        compactions = try container.decode(Int.self, forKey: .compactions)
+        needsSessionStart = try container.decode(Bool.self, forKey: .needsSessionStart)
+        needsContextStart = try container.decode(Bool.self, forKey: .needsContextStart)
+        summary = try container.decodeIfPresent(String.self, forKey: .summary)
     }
     
     // MARK: - Public
@@ -105,7 +137,8 @@ struct SessionRecord: Sendable, Equatable, Codable {
             createdAt: time,
             usedAt: time,
             turns: 0,
-            compact: compact
+            compact: compact,
+            compactMode: compactMode
         )
     }
     

@@ -121,25 +121,6 @@ struct AgentLoopBackend: Backend {
         return AgentLoopSession(messages: messages)
     }
     
-    func compact(
-        _ session: any BackendSession,
-        turn: @Sendable (String) async throws -> BackendResponse
-    ) async throws -> BackendResponse {
-        guard let session = session as? AgentLoopSession else {
-            throw BackendCompactionUnavailable("the session is not one this backend opened")
-        }
-        
-        let compaction = SummaryCompaction()
-        
-        // The request and its answer stay as the new conversation's first exchange.
-        return try await compaction.compact(turn: turn) { summary in
-            session.messages = [
-                ChatMessage(role: .user, content: compaction.request),
-                ChatMessage(role: .assistant, content: summary)
-            ]
-        }
-    }
-    
     func invoke(_ invocation: AgentInvocation) async throws -> BackendResponse {
         let translated = try translator.translate(invocation.agent)
         let native = translated.value

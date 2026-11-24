@@ -19,16 +19,19 @@ struct AgentService: AgentServing {
     let executor: AgentExecutor
     let sessions: SessionStore
     let limits: ForgeConfig.SessionConfig
+    let summaryCompaction: SummaryCompaction
 
     // MARK: - Initializer
     init(
         executor: AgentExecutor,
         sessions: SessionStore,
-        limits: ForgeConfig.SessionConfig = ForgeConfig.SessionConfig()
+        limits: ForgeConfig.SessionConfig = ForgeConfig.SessionConfig(),
+        summaryCompaction: SummaryCompaction = SummaryCompaction()
     ) {
         self.executor = executor
         self.sessions = sessions
         self.limits = limits
+        self.summaryCompaction = summaryCompaction
     }
 
     // MARK: - Public
@@ -119,7 +122,7 @@ struct AgentService: AgentServing {
         }
 
         // A conversation no turn has gone into holds nothing to compact.
-        guard session.usedAt != nil else { return false }
+        guard session.usedAt != nil, session.summary == nil else { return false }
 
         return try await LogContext.childNode {
             do {
@@ -209,10 +212,18 @@ struct AgentService: AgentServing {
         let agent = try Self.agent(from: settings)
         let backend = try executor.backends.resolve(provider: agent.provider)
 
+        guard settings.compactMode != .provider || backend is any CompactingBackend else {
+            throw AgentValidationError(
+                "invoke: compact_mode is provider, and \(try executor.backends.name(provider: agent.provider))"
+                    + " has no compaction of its own"
+            )
+        }
+
         return AgentSession(
             agent: agent,
             backend: backend,
             compaction: settings.compact,
+            compactionMode: settings.compactMode,
             handle: backend.openSession(),
             keeping: .none
         )
@@ -235,7 +246,8 @@ struct AgentService: AgentServing {
                     createdAt: now,
                     usedAt: now,
                     turns: 0,
-                    compact: settings.compact
+                    compact: settings.compact,
+                    compactMode: settings.compactMode
                 ),
                 name: name,
                 isConfirmed: true
@@ -258,11 +270,13 @@ struct AgentService: AgentServing {
             agent: agent,
             backend: backend,
             compaction: record.compact,
+            compactionMode: record.compactMode,
             handle: try backend.session(from: record.handle),
             keeping: .record(record, name: name, isConfirmed: false),
             contextTokens: record.contextTokens,
             usedAt: ISO8601.parse(record.usedAt),
-            due: record.due
+            due: record.due,
+            summary: record.summary
         )
     }
 
@@ -270,11 +284,15 @@ struct AgentService: AgentServing {
         let invocation = AgentInvocation(
             id: UUID().uuidString,
             agent: session.agent,
-            prompt: prompt,
+            prompt: session.summary.map { summary in summaryCompaction.opening(prompt, after: summary) } ?? prompt,
             session: session.handle
         )
+        let result = try await logged(in: session) { try await executor.run(invocation) }
 
-        return try await logged(in: session) { try await executor.run(invocation) }
+        // The conversation that took the prompt took the summary with it.
+        session.summary = nil
+
+        return result
     }
 
     // The log entries of what runs inside say which kept session they belong to.
@@ -412,7 +430,9 @@ struct AgentService: AgentServing {
     ) async throws {
         let result = try await slots.withStepSlot {
             try await logged(in: session) {
-                try await executor.compact(session.handle, agent: session.agent)
+                guard let backend = session.compactingBackend else { return try await summarize(session) }
+
+                return try await executor.compact(session.handle, agent: session.agent, on: backend)
             }
         }
 
@@ -428,6 +448,31 @@ struct AgentService: AgentServing {
         try await keep(session) { record in record.compactions += 1 }
     }
 
+    // Forge's own compaction. The size the summarizing turn measured is the
+    // old conversation's, so the new one has none until a turn reports it.
+    private func summarize(_ session: AgentSession) async throws -> AgentInvocationResult {
+        let result = try await executor.run(
+            AgentInvocation(
+                id: UUID().uuidString,
+                agent: session.agent,
+                prompt: summaryCompaction.request,
+                session: session.handle,
+                isSummaryRequest: true
+            )
+        )
+
+        session.summary = try summaryCompaction.summary(in: result.text)
+        session.handle = session.backend.openSession()
+
+        return AgentInvocationResult(
+            text: result.text,
+            usage: result.usage,
+            toolEvents: result.toolEvents,
+            durationMs: result.durationMs,
+            isCompacted: true
+        )
+    }
+
     // A summary stands where the context a hook built was, and the
     // conversation is as large as the turns after the cut measured it.
     private func compacted(
@@ -437,6 +482,7 @@ struct AgentService: AgentServing {
     ) async {
         var payload: [String: Any] = [
             "reason": reason.rawValue,
+            "by": session.summary == nil ? "provider" : "builtin",
             "duration_ms": result.durationMs
         ]
 
@@ -489,6 +535,7 @@ struct AgentService: AgentServing {
         record.contextTokens = session.contextTokens
         // A hook still running has not finished what its event calls for.
         record.due = session.due.union([session.running].compactMap { event in event })
+        record.summary = session.summary
         change(&record)
         session.keeping = .record(record, name: name, isConfirmed: true)
 

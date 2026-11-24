@@ -7,7 +7,7 @@
 
 import Foundation
 
-struct ClaudeBackend: Backend {
+struct ClaudeBackend: CompactingBackend {
     // MARK: - Property
     // What claude writes to stderr when `--resume` names a conversation it does not have.
     private static let missingConversation = "No conversation found with session ID"
@@ -148,7 +148,11 @@ struct ClaudeBackend: Backend {
             throw BackendSessionNotKept("the session is not one claude opened")
         }
         
-        return ["session_id": .string(session.sessionID), "turn_index": .int(session.turnIndex)]
+        return [
+            "session_id": .string(session.sessionID),
+            "turn_index": .int(session.turnIndex),
+            "established": .bool(session.established)
+        ]
     }
     
     func session(from record: JSONValue) throws -> any BackendSession {
@@ -159,7 +163,12 @@ struct ClaudeBackend: Backend {
             throw BackendSessionNotKept("the record does not name a claude session")
         }
         
-        return ClaudeSession(sessionID: sessionID, turnIndex: turnIndex, established: true)
+        // A record that does not say is of a conversation claude has.
+        return ClaudeSession(
+            sessionID: sessionID,
+            turnIndex: turnIndex,
+            established: record["established"]?.boolValue ?? true
+        )
     }
     
     func compact(
