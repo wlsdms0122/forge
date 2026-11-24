@@ -129,9 +129,9 @@ is refused before the text is read, and no catch takes it.
 
 ### `Forge.invoke`
 
-`invoke(model: String?, allowed: Array<Any>?, env_extra: Dictionary<String, String>, cwd: String?, permission_mode: String?, share_session: Bool, session: String?, on_session_start: (() throws -> Null)?, on_context_start: (() throws -> Null)?, compact: Forge.Compaction, timeout: Double?, body: () throws -> some Result) -> some Result`,
+`invoke(model: String?, allowed: Array<Any>?, env_extra: Dictionary<String, String>, cwd: String?, permission_mode: String?, share_session: Bool, session: String?, on_session_start: (() throws -> Null)?, on_context_start: (() throws -> Null)?, compact: Forge.Compaction, compact_mode: Forge.CompactionMode, timeout: Double?, body: () throws -> some Result) -> some Result`,
 failing anything. `env_extra` defaults to an empty dictionary, `share_session` to
-`false` and `compact` to `true`.
+`false`, and `compact` and `compact_mode` to their `auto`.
 
 Opens an agent session with these settings and calls `body` inside it; what
 the body returns is what `invoke` returns, so the body writes its `returns`.
@@ -158,7 +158,7 @@ with the `invoke` that opened it. A name is path components of
   settings. Where one is, the `invoke` continues its conversation, in this
   run or another, before or after a daemon restart, and the workflow does not
   tell the two apart.
-- `model`, `allowed`, `permission_mode` and `compact` are the session's: a kept session
+- `model`, `allowed`, `permission_mode`, `compact` and `compact_mode` are the session's: a kept session
   runs with the ones it was made with, and a later `invoke`'s are not read,
   as with `share_session`. `cwd` and `env_extra` are each `invoke`'s own.
 - One `invoke` holds a session at a time, for its whole body. Another that
@@ -204,7 +204,7 @@ hook sends call for no hook.
 
 A conversation grows with every turn, and each turn reads all of it. As an
 `invoke` takes up a kept session, before its first turn, the daemon compacts
-the conversation (the backend replaces it with a summary) in two cases: its
+the conversation (a summary takes its place) in two cases: its
 size is past `[session] context_limit`, or it is past
 `[session] cold_compact_floor` and the backend's cache of it has expired, so
 the turn would read all of it at full price. The size is what the last
@@ -222,11 +222,22 @@ on reaching its own limit, or the prompt the turn carried (`/compact` to
 `claude`), and such a turn may end with no text. The daemon logs `session.compacted` with the
 reason: `limit`, `cold`, `turn` for one a turn did, or `requested` for one a
 `compact` step asked for.
-A backend that cannot compact fails the turn with `BackendCompactionUnavailable`.
-The `claude` backend compacts its own conversation, and its cache stands for
-an hour. A `codex` or OpenAI-compatible conversation is compacted by a turn
-that asks it for a summary of itself, and the summary opens the conversation
-that takes its place. An OpenAI-compatible backend reports a size where its
+
+Two compactions shrink a conversation. A backend may have one of its own:
+`claude` does (`/compact`), and `codex` and an OpenAI-compatible backend have
+none. Forge's works on any backend: a turn asks the conversation for a
+summary of itself, the session opens a new conversation on its backend, and
+the first turn that goes into it opens with the summary. The session, its
+name and its record stay as they were; `on_session_start` is not due again.
+`compact_mode` says whose compaction the session takes, a case of the enum
+`Forge.CompactionMode`: `{ case: auto }` (the default) the backend's own
+where it has one and Forge's where it has none, `{ case: provider }` the
+backend's own, which an `invoke` on a backend without one refuses, or
+`{ case: builtin }` Forge's. It covers the compactions the daemon and the
+`compact` step start; one a backend does during a turn is the backend's.
+`session.compacted` says which in `by`: `provider` or `builtin`.
+
+The `claude` backend's cache stands for an hour. An OpenAI-compatible backend reports a size where its
 endpoint counts the request. The `codex` backend reads the size from the
 rollout file codex keeps for the thread under `CODEX_HOME` (`~/.codex` where
 unset), and reports none where it finds no such file.

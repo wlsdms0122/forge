@@ -939,24 +939,27 @@ ticket and unlinks it from its parent's children.
 
 ```json
 {"sessions":[{"name","provider","handle","model"?,"allowed"?,"permission_mode"?,
-              "created_at","used_at","turns","context_tokens"?,"compact","compactions",
-              "needs_session_start","needs_context_start","held","waiting"}]}
+              "created_at","used_at","turns","context_tokens"?,"compact","compact_mode","compactions",
+              "needs_session_start","needs_context_start","summary"?,"held","waiting"}]}
 ```
 
 Sorted by name; a name is in lowercase, whatever case the `invoke` spelled it in. `handle` is what the backend wrote to find the conversation
-again (`claude`: `{"session_id","turn_index"}`). `model`, `allowed` and
+again (`claude`: `{"session_id","turn_index","established"}`). `model`, `allowed` and
 `permission_mode` are the session's settings as its first `invoke` gave them,
 absent where it gave none. `turns` counts the turns finished since the
 conversation started. `context_tokens` is the conversation's size as its last
 turn ended (what that turn's last request carried in, cached or not), absent
 until a turn reports one and again after a compaction until the next turn
 measures it. `compact` is when the daemon compacts the session as an `invoke` takes
-it up (`"auto"`, `"none"` or a size in tokens),
+it up (`"auto"`, `"none"` or a size in tokens), `compact_mode` whose compaction
+shrinks it (`"auto"`, `"provider"` or `"builtin"`),
 and `compactions` how many times the conversation was compacted, by the
 daemon or by a turn. `needs_session_start` is whether the
 session started and no `invoke`'s `on_session_start` has run since, and
 `needs_context_start` whether the conversation holds no context an
-`on_context_start` built: the session started or was compacted since one ran. `held` is whether an `invoke` holds the session now, and
+`on_context_start` built: the session started or was compacted since one ran. `summary` is what
+Forge's compaction left of the conversation it replaced, present until a turn
+has opened the new one with it. `held` is whether an `invoke` holds the session now, and
 `waiting` how many wait behind it.
 
 A record that does not read is left out of the list; `session.show` says why.
@@ -1217,7 +1220,6 @@ The error envelope is `{"type": "<ErrorType>", "message": "<text>"}` and the fie
 | `AgentValidationError` | an `invoke`'s agent cannot be built: its model, tools or `permission_mode`, or a combination its provider cannot run; fix the workflow |
 | `SessionStoreError` | a session name is not path components of `[A-Za-z0-9._-]` (none starting with a dot or ending in `.json`), no session is kept under it, its record does not read, or it is held by a running `invoke` (`session.delete`) |
 | `BackendSessionNotKept` | an `invoke` names a `session` on a backend that does not keep one past the `invoke`; drop the name or use a backend that does |
-| `BackendCompactionUnavailable` | a session grew past the daemon's sizes on a backend that cannot compact one; give the `invoke` `compact: { case: none }` or raise `[session]` |
 | `BackendSessionLost` | a backend no longer has the conversation a session names. An `invoke` does not surface it: taking up a kept session, the name starts a new conversation and the daemon logs `session.lost`; later in the body the turn fails with the backend's `BackendNonzeroExit` |
 | `AgentSessionMissing` | an `agent` step ran outside an `invoke`, where no agent session is open; fix the workflow |
 | `ResourceError` | a file cannot be given: a path with an empty, `.` or `..` part, a workflow path spelled `<inline>`, a `resource.read` path that is absolute, hidden or led out by a link, a missing or unreadable file |
