@@ -1,5 +1,5 @@
 {
-  "originHash" : "dcc9a9145c835bc8de6eacf0b17542363d7ae49f4bf3f970691baaf1a079ea54",
+  "originHash" : "ac8de366f319a3cb93f9003f65bbb93434f32e06bd752d3d2b6c9390753ccbd4",
   "pins" : [
     {
       "identity" : "swift-argument-parser",
@@ -24,8 +24,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/wlsdms0122/warp-frontend-yaml.git",
       "state" : {
-        "revision" : "d0a5f3443350b2440ccbc8336558644d4f4e33dd",
-        "version" : "0.1.0"
+        "revision" : "0e96351b6eee57efdbfef149d80365751c0dec01",
+        "version" : "0.1.1"
       }
     },
     {
