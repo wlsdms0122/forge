@@ -320,7 +320,8 @@ The library is edited in `lib/Forge.yaml`. The binary carries a copy of it,
 `ForgeVocabularyTests` holds the copy to the file, so an edit that was not
 embedded is a red test. The prompt Forge's compaction asks a conversation for
 its summary with is `lib/Compaction.prompt.md` and ships the same way, as
-`CompactionPrompt.swift`.
+`CompactionPrompt.swift`. A daemon reads its own from the file
+`[session] compaction_prompt` names.
 
 ```
 manifest.toml   the open-package manifest: version, requirements, commands

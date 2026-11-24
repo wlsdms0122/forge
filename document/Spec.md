@@ -226,7 +226,8 @@ reason: `limit`, `cold`, `turn` for one a turn did, or `requested` for one a
 Two compactions shrink a conversation. A backend may have one of its own:
 `claude` does (`/compact`), and `codex` and an OpenAI-compatible backend have
 none. Forge's works on any backend: a turn asks the conversation for a
-summary of itself, the session opens a new conversation on its backend, and
+summary of itself (with the prompt the binary ships, or the one
+`[session] compaction_prompt` names), the session opens a new conversation on its backend, and
 the first turn that goes into it opens with the summary. The session, its
 name and its record stay as they were; `on_session_start` is not due again.
 `compact_mode` says whose compaction the session takes, a case of the enum
