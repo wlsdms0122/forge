@@ -197,6 +197,23 @@ struct SessionStoreTests {
         await sut.release(held)
     }
     
+    @Test("a record that names no compact mode is of a session with the automatic one")
+    func recordWithoutCompactModeIsAutomatic() throws {
+        // Given
+        let written = """
+        {"provider":"claude","handle":{"session_id":"S-1","turn_index":1},"created_at":"2026-11-20T09:00:00Z",
+         "used_at":"2026-11-20T09:00:00Z","turns":1,"compact":"auto","compactions":0,
+         "needs_session_start":false,"needs_context_start":false}
+        """
+        
+        // When
+        let sut = try JSONDecoder().decode(SessionRecord.self, from: Data(written.utf8))
+        
+        // Then
+        #expect(sut.compactMode == .automatic)
+        #expect(sut.summary == nil)
+    }
+    
     // MARK: - Private
     private static func record(turns: Int, usedAt: String = "2026-11-22T09:05:00Z") -> SessionRecord {
         SessionRecord(
@@ -208,7 +225,8 @@ struct SessionStoreTests {
             createdAt: "2026-11-22T09:00:00Z",
             usedAt: usedAt,
             turns: turns,
-            compact: .automatic
+            compact: .automatic,
+            compactMode: .automatic
         )
     }
 }

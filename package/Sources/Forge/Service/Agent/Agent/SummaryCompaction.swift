@@ -7,24 +7,35 @@
 
 import Foundation
 
-// Compacts a conversation whose backend has no compaction of its own: one
+// Forge's own compaction, which any backend's conversation can take: one
 // turn has the conversation summarize itself, and the summary opens the
 // conversation that takes its place.
-struct SummaryCompaction {
+struct SummaryCompaction: Sendable {
     // MARK: - Property
     // The prompt that asks a conversation for its summary.
-    let request = CompactionPrompt.text
+    let request: String
 
     // MARK: - Initializer
+    init(request: String = CompactionPrompt.text) {
+        self.request = request
+    }
+
     // MARK: - Public
-    // Asks the conversation for its summary through `turn` and hands it to
-    // `replace`, which puts the new conversation in the old one's place.
-    func compact(
-        turn: @Sendable (String) async throws -> BackendResponse,
-        replace: (String) -> Void
-    ) async throws -> BackendResponse {
-        let response = try await turn(request)
-        let summary = summary(in: response.text)
+    // The summary in the answer to `request`. The prompt asks for it inside
+    // `<summary>` tags after the analysis it is drawn from; an answer without
+    // them is all summary.
+    func summary(in answer: String) throws -> String {
+        let summary: String
+
+        if
+            let open = answer.range(of: "<summary>"),
+            let close = answer.range(of: "</summary>", options: .backwards),
+            open.upperBound <= close.lowerBound
+        {
+            summary = answer[open.upperBound..<close.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+        } else {
+            summary = answer.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
 
         guard !summary.isEmpty else {
             throw BackendProtocolViolation(
@@ -32,17 +43,7 @@ struct SummaryCompaction {
             )
         }
 
-        replace(summary)
-
-        // The size the turn measured is the old conversation's.
-        return BackendResponse(
-            text: response.text,
-            usage: response.usage,
-            toolEvents: response.toolEvents,
-            stdoutLength: response.stdoutLength,
-            durationMs: response.durationMs,
-            isCompacted: true
-        )
+        return summary
     }
 
     // The prompt that carries the summary into a conversation that starts empty.
@@ -59,17 +60,4 @@ struct SummaryCompaction {
     }
 
     // MARK: - Private
-    // The prompt asks for the summary inside `<summary>` tags after the
-    // analysis it is drawn from; an answer without them is all summary.
-    private func summary(in text: String) -> String {
-        guard
-            let open = text.range(of: "<summary>"),
-            let close = text.range(of: "</summary>", options: .backwards),
-            open.upperBound <= close.lowerBound
-        else {
-            return text.trimmingCharacters(in: .whitespacesAndNewlines)
-        }
-
-        return text[open.upperBound..<close.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
-    }
 }

@@ -45,37 +45,26 @@ struct SummaryCompactionTests {
             ("  the whole answer\n", "the whole answer")
         ]
     )
-    func summaryComesFromTags(answer: String, expected: String) async throws {
+    func summaryComesFromTags(answer: String, expected: String) throws {
         // Given
         let sut = SummaryCompaction()
-        var replaced: String?
 
         // When
-        let response = try await sut.compact(
-            turn: { _ in BackendResponse(text: answer, contextTokens: 9_000) },
-            replace: { summary in replaced = summary }
-        )
+        let summary = try sut.summary(in: answer)
 
         // Then
-        #expect(replaced == expected)
-        #expect(response.isCompacted)
-        #expect(response.contextTokens == nil)
+        #expect(summary == expected)
     }
 
-    @Test("an answer whose summary is empty leaves the conversation as it was")
-    func emptySummaryReplacesNothing() async {
+    @Test("an answer that holds no summary is refused")
+    func emptySummaryIsRefused() {
         // Given
         let sut = SummaryCompaction()
-        var replaced = false
 
         // Then
-        await #expect(throws: BackendProtocolViolation.self) {
-            _ = try await sut.compact(
-                turn: { _ in BackendResponse(text: "<summary>\n</summary>") },
-                replace: { _ in replaced = true }
-            )
+        #expect(throws: BackendProtocolViolation.self) {
+            _ = try sut.summary(in: "<summary>\n</summary>")
         }
-        #expect(!replaced)
     }
 
     // MARK: - Private

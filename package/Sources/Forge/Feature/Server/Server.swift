@@ -43,7 +43,8 @@ package actor Server {
         instanceHome: URL,
         instance: String,
         configPath: String? = nil,
-        vocabulary: ForgeVocabulary
+        vocabulary: ForgeVocabulary,
+        summaryCompaction: SummaryCompaction = SummaryCompaction()
     ) {
         self.config = config
         self.configSnapshot = ConfigSnapshot(configReport)
@@ -115,7 +116,12 @@ package actor Server {
             jobStore: jobStoreLocal,
             capabilities: CapabilitySet(
                 shell: ShellExecutor(),
-                agent: AgentService(executor: executor, sessions: sessionStore, limits: config.session),
+                agent: AgentService(
+                    executor: executor,
+                    sessions: sessionStore,
+                    limits: config.session,
+                    summaryCompaction: summaryCompaction
+                ),
                 resources: ResourceReader(workingDirectory: workingDirectory)
             )
         )
@@ -303,7 +309,8 @@ package actor Server {
             instanceHome: home,
             instance: Instance.name(instance),
             configPath: absoluteConfigPath,
-            vocabulary: try ForgeVocabulary()
+            vocabulary: try ForgeVocabulary(),
+            summaryCompaction: try configuration.session.summaryCompaction()
         )
         
         try await server.boot()

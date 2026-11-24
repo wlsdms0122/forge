@@ -46,15 +46,39 @@ struct ForgeConfig: Sendable {
         let coldCompactFloor: Int
         // The days a session no invoke uses is kept.
         let retentionDays: Int
+        // The file that holds the prompt Forge's compaction asks a conversation
+        // for its summary with; nil for the one the binary ships.
+        let compactionPrompt: URL?
         
         // MARK: - Initializer
-        init(contextLimit: Int = 250_000, coldCompactFloor: Int = 80_000, retentionDays: Int = 7) {
+        init(
+            contextLimit: Int = 250_000,
+            coldCompactFloor: Int = 80_000,
+            retentionDays: Int = 7,
+            compactionPrompt: URL? = nil
+        ) {
             self.contextLimit = contextLimit
             self.coldCompactFloor = coldCompactFloor
             self.retentionDays = retentionDays
+            self.compactionPrompt = compactionPrompt
         }
         
         // MARK: - Public
+        // Forge's compaction with the prompt these settings name.
+        func summaryCompaction() throws -> SummaryCompaction {
+            guard let file = compactionPrompt else { return SummaryCompaction() }
+            
+            guard let prompt = try? String(contentsOf: file, encoding: .utf8) else {
+                throw ConfigError("config [session]: compaction_prompt \(file.path) does not read as text")
+            }
+            
+            guard !prompt.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                throw ConfigError("config [session]: compaction_prompt \(file.path) holds no prompt")
+            }
+            
+            return SummaryCompaction(request: prompt)
+        }
+        
         // MARK: - Private
     }
     

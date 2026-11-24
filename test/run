@@ -336,6 +336,14 @@ def main():
               "a compact step compacts a session made with compact none", asked + shown)
         harness.forge("session", "delete", "e2e/asked")
 
+        # Forge's own compaction, on a backend that has one of its own.
+        summarized = harness.forge("workflow", "dispatch", "summarize.yaml")
+        shown = harness.forge("session", "show", "e2e/summarized", "--json").replace(" ", "")
+        check("true" in summarized and '"compact_mode":"builtin"' in shown and '"compactions":1' in shown
+              and '"summary":"' in shown,
+              "a session made with compact mode builtin is compacted into a summary", summarized + shown)
+        harness.forge("session", "delete", "e2e/summarized")
+
         # Lifecycle: a session and its context start before its first turn,
         # and a later run that finds both started sends only its own turn.
         harness.forge("workflow", "dispatch", "boot.yaml")

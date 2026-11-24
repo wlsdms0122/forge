@@ -65,6 +65,7 @@ enum Library {
               - on_session_start: { type: "(() throws -> Null)?", hint: "run inside the session before a turn once the backend has opened it: the session is new, or the conversation a kept one named was gone" }
               - on_context_start: { type: "(() throws -> Null)?", hint: "what builds the session's context; run inside the session before a turn whenever the conversation holds none of it: the session started, or was compacted since this last ran" }
               - compact: { type: Forge.Compaction, default: { case: auto }, hint: "when the daemon compacts a kept session as an invoke takes it up: auto past the daemon's sizes, none never, limit past its tokens; the session's own where it already exists" }
+              - compact_mode: { type: Forge.CompactionMode, default: { case: auto }, hint: "whose compaction shrinks the conversation: auto the provider's own where it has one and Forge's where it has none, provider the provider's own, builtin Forge's, which has the conversation summarize itself and opens a new one with the summary; the session's own where it already exists" }
               - timeout: { type: Double?, hint: "seconds before the invoke fails with timeout, the wait for a held session counted" }
               - body: { type: "() throws -> some Result", hint: "the turns the session runs" }
             returns: some Result
@@ -72,7 +73,7 @@ enum Library {
             result:
               call:
                 procedure: Forge.Native.invoke
-                arguments: [ { ref: model }, { ref: allowed }, { ref: env_extra }, { ref: cwd }, { ref: permission_mode }, { ref: share_session }, { ref: session }, { ref: on_session_start }, { ref: on_context_start }, { ref: compact }, { ref: timeout }, { ref: body } ]
+                arguments: [ { ref: model }, { ref: allowed }, { ref: env_extra }, { ref: cwd }, { ref: permission_mode }, { ref: share_session }, { ref: session }, { ref: on_session_start }, { ref: on_context_start }, { ref: compact }, { ref: compact_mode }, { ref: timeout }, { ref: body } ]
         
           agent:
             description: One prompt turn in the session the enclosing invoke opened, holding a step slot, and the reply.
@@ -159,6 +160,11 @@ enum Library {
           (case limit (field tokens Int))
           (case none))
         
+        (enum Forge.CompactionMode
+          (case auto)
+          (case builtin)
+          (case provider))
+        
         (struct Forge.Origin
           (field id (optional String))
           (field kind String))
@@ -206,6 +212,7 @@ enum Library {
           (parameter on_session_start (type (optional (procedure (parameters) (failing (anything)) (returns Null)))))
           (parameter on_context_start (type (optional (procedure (parameters) (failing (anything)) (returns Null)))))
           (parameter compact (type Forge.Compaction))
+          (parameter compact_mode (type Forge.CompactionMode))
           (parameter timeout (type (optional Double)))
           (parameter body (type (procedure (parameters) (failing (anything)) (returns (some Result)))))
           (returns (some Result))

@@ -75,6 +75,42 @@ struct ConfigLoaderTests {
         #expect(configuration.session.contextLimit == 120_000)
         #expect(configuration.session.coldCompactFloor == 80_000)
         #expect(configuration.session.retentionDays == 7)
+        #expect(configuration.session.compactionPrompt == nil)
+    }
+    
+    @Test("The compaction prompt is the file the session settings name, beside the toml where the path is relative")
+    func compactionPromptIsReadFromTheFileNamed() throws {
+        // Given
+        let directory = try temporary.make("prompt")
+        let home = try temporary.make("prompt-home")
+        defer { for d in [directory, home] { try? FileManager.default.removeItem(at: d) } }
+        let url = try writeTOML("[session]\ncompaction_prompt = \"summary.md\"\n", in: directory)
+        try "Sum it up.".write(to: directory.appendingPathComponent("summary.md"), atomically: true, encoding: .utf8)
+        
+        // When
+        let sut = ConfigLoader.build(file: try ConfigLoader.parse(url), tomlDirectory: directory, instanceHome: home, environment: [:]).session
+        
+        // Then
+        #expect(sut.compactionPrompt?.path == directory.appendingPathComponent("summary.md").path)
+        #expect(try sut.summaryCompaction().request == "Sum it up.")
+        #expect(try ForgeConfig.SessionConfig().summaryCompaction().request == CompactionPrompt.text)
+    }
+    
+    @Test("A compaction prompt file that is missing or holds nothing is refused")
+    func compactionPromptWithoutAPromptIsRefused() throws {
+        // Given
+        let directory = try temporary.make("no-prompt")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let empty = directory.appendingPathComponent("empty.md")
+        try "\n".write(to: empty, atomically: true, encoding: .utf8)
+        
+        // Then
+        #expect(throws: ConfigError.self) {
+            _ = try ForgeConfig.SessionConfig(compactionPrompt: directory.appendingPathComponent("gone.md")).summaryCompaction()
+        }
+        #expect(throws: ConfigError.self) {
+            _ = try ForgeConfig.SessionConfig(compactionPrompt: empty).summaryCompaction()
+        }
     }
     
     @Test("With no configuration, convention defaults take effect")
@@ -210,7 +246,7 @@ struct ConfigLoaderTests {
         arguments: [
             ("[directory]\nroot = \"doc\"", "config [directory]: unknown key 'root'; known keys: policy, working"),
             ("[pool]\nmaximum = 3\nsteps = 2", "config [pool]: unknown keys 'maximum', 'steps'"),
-            ("[session]\nlimit = 3", "config [session]: unknown key 'limit'; known keys: cold_compact_floor, context_limit, retention_days"),
+            ("[session]\nlimit = 3", "config [session]: unknown key 'limit'; known keys: cold_compact_floor, compaction_prompt, context_limit, retention_days"),
             ("[service.bot]\ncommand = [\"x\"]\ncwd = \"/\"", "config [service.bot]: unknown key 'cwd'"),
             ("[logs]\njsonl = \"x\"", "config top level: unknown key 'logs'")
         ]

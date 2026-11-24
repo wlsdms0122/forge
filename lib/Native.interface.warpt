@@ -5,6 +5,11 @@
   (case limit (field tokens Int))
   (case none))
 
+(enum Forge.CompactionMode
+  (case auto)
+  (case builtin)
+  (case provider))
+
 (struct Forge.Origin
   (field id (optional String))
   (field kind String))
@@ -52,6 +57,7 @@
   (parameter on_session_start (type (optional (procedure (parameters) (failing (anything)) (returns Null)))))
   (parameter on_context_start (type (optional (procedure (parameters) (failing (anything)) (returns Null)))))
   (parameter compact (type Forge.Compaction))
+  (parameter compact_mode (type Forge.CompactionMode))
   (parameter timeout (type (optional Double)))
   (parameter body (type (procedure (parameters) (failing (anything)) (returns (some Result)))))
   (returns (some Result))

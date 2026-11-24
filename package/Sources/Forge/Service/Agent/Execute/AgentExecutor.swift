@@ -35,11 +35,14 @@ struct AgentExecutor: Sendable {
         return AgentInvocationResult(response, durationMs: (ContinuousClock.now - started).milliseconds)
     }
     
-    // Compacts the session's conversation on the agent's backend. The turns
-    // the compaction takes are invocations like any other.
-    func compact(_ session: any BackendSession, agent: Agent) async throws -> AgentInvocationResult {
+    // Compacts the session's conversation with the backend's own compaction.
+    // The turns the compaction takes are invocations like any other.
+    func compact(
+        _ session: any BackendSession,
+        agent: Agent,
+        on backend: any CompactingBackend
+    ) async throws -> AgentInvocationResult {
         let started = ContinuousClock.now
-        let backend = try backends.resolve(provider: agent.provider)
         let response = try await backend.compact(session) { prompt in
             try await respond(
                 to: AgentInvocation(id: UUID().uuidString, agent: agent, prompt: prompt, session: session)

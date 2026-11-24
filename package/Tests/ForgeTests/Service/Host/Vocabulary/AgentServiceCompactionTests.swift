@@ -329,7 +329,110 @@ struct AgentServiceCompactionTests {
         #expect(reply == .array([.bool(false), .string("two")]))
     }
     
+    @Test("a session made with compact mode builtin is compacted by Forge, whatever its backend has")
+    func builtinModeSummarizesOnACompactingBackend() async throws {
+        // Given
+        let directory = try temporary.make("builtin")
+        let backend = TranscriptBackend()
+        let sut = Self.agent(backend, directory)
+        let name = try SessionName("kept")
+        
+        // When
+        let reply = try await sut.withSession(AgentSessionSettings(session: name, compactMode: .builtin)) {
+            _ = try await sut.send(prompt: "one")
+            
+            let isCompacted = try await sut.compact()
+            
+            return .array([.bool(isCompacted), .string(try await sut.send(prompt: "two"))])
+        }
+        
+        // Then
+        let record = try #require(try await SessionStore(directory: directory).record(name))
+        let invocations = backend.invocations.elements
+        let conversations = invocations.map { invocation in (invocation.session as? TranscriptBackend.Session)?.id }
+        
+        #expect(
+            reply == .array([.bool(true), .string(Self.summaryCompaction.opening("two", after: "one,summarize"))])
+        )
+        #expect(backend.compactions.elements.isEmpty)
+        #expect(invocations.map(\.isSummaryRequest) == [false, true, false])
+        #expect(conversations[0] == conversations[1])
+        #expect(conversations[1] != conversations[2])
+        #expect(record.compactions == 1)
+        #expect(record.turns == 2)
+        #expect(record.summary == nil)
+    }
+    
+    @Test("a session whose backend has no compaction of its own is compacted by Forge")
+    func automaticModeSummarizesOnAPlainBackend() async throws {
+        // Given
+        let directory = try temporary.make("plain")
+        let sut = Self.agent(PlainTranscriptBackend(), directory, contextLimit: 2500)
+        let name = try SessionName("kept")
+        
+        _ = try await sut.withSession(AgentSessionSettings(session: name)) {
+            _ = try await sut.send(prompt: "one")
+            _ = try await sut.send(prompt: "two")
+            
+            return .string(try await sut.send(prompt: "three"))
+        }
+        
+        // When
+        let reply = try await sut.withSession(AgentSessionSettings(session: name)) {
+            .string(try await sut.send(prompt: "four"))
+        }
+        
+        // Then
+        let record = try #require(try await SessionStore(directory: directory).record(name))
+        
+        #expect(reply == .string(Self.summaryCompaction.opening("four", after: "one,two,three,summarize")))
+        #expect(record.compactions == 1)
+    }
+    
+    @Test("compact mode provider is refused on a backend with no compaction of its own")
+    func providerModeNeedsACompactingBackend() async throws {
+        // Given
+        let sut = Self.agent(PlainTranscriptBackend(), try temporary.make("refused"))
+        
+        // Then
+        await #expect(throws: AgentValidationError.self) {
+            _ = try await sut.withSession(AgentSessionSettings(compactMode: .provider)) { .null }
+        }
+    }
+    
+    @Test("a summary no turn has opened with waits in the record for the next invoke's first turn")
+    func summaryWaitsForTheNextInvoke() async throws {
+        // Given
+        let directory = try temporary.make("waits")
+        let sut = Self.agent(TranscriptBackend(), directory)
+        let name = try SessionName("kept")
+        
+        let compacted = try await sut.withSession(AgentSessionSettings(session: name, compactMode: .builtin)) {
+            _ = try await sut.send(prompt: "one")
+            
+            // The second finds a conversation no turn has gone into.
+            return .array([.bool(try await sut.compact()), .bool(try await sut.compact())])
+        }
+        let waiting = try #require(try await SessionStore(directory: directory).record(name))
+        
+        // When
+        let reply = try await sut.withSession(AgentSessionSettings(session: name)) {
+            .string(try await sut.send(prompt: "two"))
+        }
+        
+        // Then
+        let record = try #require(try await SessionStore(directory: directory).record(name))
+        
+        #expect(compacted == .array([.bool(true), .bool(false)]))
+        #expect(waiting.summary == "one,summarize")
+        #expect(reply == .string(Self.summaryCompaction.opening("two", after: "one,summarize")))
+        #expect(record.summary == nil)
+        #expect(record.compactions == 1)
+    }
+    
     // MARK: - Private
+    private static let summaryCompaction = SummaryCompaction(request: "summarize")
+    
     private static func agent(
         _ backend: any Backend,
         _ directory: URL,
@@ -339,7 +442,8 @@ struct AgentServiceCompactionTests {
         AgentService(
             executor: AgentExecutor(backend: backend),
             sessions: SessionStore(directory: directory),
-            limits: ForgeConfig.SessionConfig(contextLimit: contextLimit, coldCompactFloor: coldCompactFloor)
+            limits: ForgeConfig.SessionConfig(contextLimit: contextLimit, coldCompactFloor: coldCompactFloor),
+            summaryCompaction: summaryCompaction
         )
     }
     

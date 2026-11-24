@@ -134,7 +134,10 @@ a reviewer or a chat thread without talking over each other.
 
 A kept dialogue grows, so the daemon compacts it as an `invoke` takes it up
 once it is past a size, or past a smaller one when the backend's cache of it
-has gone cold. The turns of one `invoke` are left whole. An `invoke` may bring `on_context_start`, the turns that build the
+has gone cold. The turns of one `invoke` are left whole. The backend's own
+compaction does it where there is one, and Forge's where there is none or the
+`invoke` asks for it with `compact_mode`: the dialogue summarizes itself and
+a new one opens with the summary. An `invoke` may bring `on_context_start`, the turns that build the
 session's context; the daemon runs it when the dialogue is new or was
 compacted, and the workflow never asks which. `on_session_start` runs once
 for each session the backend opens.
@@ -315,9 +318,10 @@ build plugin writes it into the binary at every build, so `forge --version`,
 The library is edited in `lib/Forge.yaml`. The binary carries a copy of it,
 `Library.swift`, which `tool/embed-library.sh` writes; run it after an edit.
 `ForgeVocabularyTests` holds the copy to the file, so an edit that was not
-embedded is a red test. The prompt that asks a conversation for its summary,
-where the daemon compacts one its backend cannot, is `lib/Compaction.prompt.md`
-and ships the same way, as `CompactionPrompt.swift`.
+embedded is a red test. The prompt Forge's compaction asks a conversation for
+its summary with is `lib/Compaction.prompt.md` and ships the same way, as
+`CompactionPrompt.swift`. A daemon reads its own from the file
+`[session] compaction_prompt` names.
 
 ```
 manifest.toml   the open-package manifest: version, requirements, commands
